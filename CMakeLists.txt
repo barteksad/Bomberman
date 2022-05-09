@@ -21,7 +21,6 @@ FIND_PACKAGE( Boost COMPONENTS program_options log log_setup )
 INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIR} )
 
 add_executable(robots-client src/robots-client.cpp src/client.h src/messages.h src/common.h src/common.h src/messages.h src/client.h src/robots-client.cpp)
-#add_executable(Bomberman src/robots-client.cpp)
 
 
 # tests
