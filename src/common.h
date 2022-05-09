@@ -51,6 +51,13 @@ namespace bomberman {
         Left = 3
     };
 
+    enum class input_message_t : message_t {
+        PlaceBomb, PlaceBlock, Move
+    };
+
+    // message Move { direction }
+    const std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_t) + sizeof(direction_t);
+
     class ConnectError : public std::runtime_error
     {
     public:

@@ -41,8 +41,8 @@ int main(int ac, char *av[])
         std::string server_endpoint_input, gui_endpoint_input, player_name;
         uint16_t port;
 
-        server_endpoint_input = vm["-d"].as<std::string>();
-        gui_endpoint_input = vm["-s"].as<std::string>();
+        server_endpoint_input = vm["-s"].as<std::string>();
+        gui_endpoint_input = vm["-d"].as<std::string>();
         player_name = vm["-n"].as<std::string>();
         port = vm["-p"].as<uint16_t>();
 

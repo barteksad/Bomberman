@@ -1,11 +1,8 @@
-//
-// Created by HYPERBOOK on 08.05.2022.
-//
-
 #ifndef BOMBERMAN_CLIENT_H
 #define BOMBERMAN_CLIENT_H
 
 #include "common.h"
+#include "messages.h"
 
 #include <boost/asio.hpp>
 
@@ -22,10 +19,14 @@ namespace bomberman {
                      std::string &gui_endpoint_input,
                      std::string &player_name,
                      uint16_t port)
-                : io_context_(io_context), server_socket_(io_context), gui_socket_(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port)), player_name_(player_name), state(LOBBY) {
+                : io_context_(io_context),
+                server_socket_(io_context),
+                gui_socket_(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port)),
+                  gui_deserializer_(gui_socket_),
+                player_name_(player_name),
+                state(LOBBY) {
+
             // connect to GUI
-//            gui_socket_.open()
-//            gui_socket_.bind(boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port));
             boost::asio::ip::udp::resolver gui_resolver(io_context);
             auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
             auto gui_endpoints = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1));
@@ -39,7 +40,6 @@ namespace bomberman {
                                             }
                                             else
                                             {
-                                                BOOST_LOG_TRIVIAL(fatal) << "Error connecting to GUI, error: " << ec << "\n";
                                                 throw ConnectError("GUI");
                                             }
                                        });
@@ -58,7 +58,6 @@ namespace bomberman {
                                            }
                                            else
                                            {
-                                               BOOST_LOG_TRIVIAL(fatal) << "Error connecting to server, error: " << ec << "\n";
                                                throw ConnectError("server");
                                            }
                                        });
@@ -66,7 +65,7 @@ namespace bomberman {
 
         void read_header_from_server()
         {
-
+//            boost::asio::async_read()
         }
         void read_from_gui()
         {
@@ -78,6 +77,7 @@ namespace bomberman {
         boost::asio::io_context &io_context_;
         boost::asio::ip::tcp::socket server_socket_;
         boost::asio::ip::udp::socket gui_socket_;
+        UdpDeserializer gui_deserializer_;
         std::string player_name_;
         enum client_state_t {
             LOBBY, IN_GAME, OBSERVE
