@@ -3,7 +3,7 @@ project (Bomberman)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_COMPILER "/usr/bin/g++-11")
-set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion  -O2")
+set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion")
 #set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion -Werror -O2")
 
 
@@ -23,8 +23,6 @@ INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIR} )
 
 add_executable(robots-client src/robots-client.cpp src/client.h src/messages.h src/common.h src/common.h src/messages.h src/client.h src/robots-client.cpp)
 
-
-# tests
 
 
 install(TARGETS DESTINATION .)

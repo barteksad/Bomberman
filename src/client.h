@@ -32,20 +32,21 @@ namespace bomberman {
             // connect to GUI
             boost::asio::ip::udp::resolver gui_resolver(io_context);
             auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
-            auto gui_endpoints = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1));
-            boost::asio::async_connect(gui_socket_, gui_endpoints,
-                                       [this](boost::system::error_code ec, const boost::asio::ip::udp::endpoint& endpoint)
-                                       {
-                                            if(!ec)
-                                            {
-                                                BOOST_LOG_TRIVIAL(info) << "Successfully connected to gui at: " << endpoint << "\n";
-                                                read_from_gui();
-                                            }
-                                            else
-                                            {
-                                                throw ConnectError("GUI");
-                                            }
-                                       });
+            gui_endpoints_iter_ = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1));
+            boost::asio::post([this](){read_from_gui();});
+            // boost::asio::async_connect(gui_socket_, gui_endpoints,
+            //                            [this](boost::system::error_code ec, const boost::asio::ip::udp::endpoint& endpoint)
+            //                            {
+            //                                 if(!ec)
+            //                                 {
+            //                                     BOOST_LOG_TRIVIAL(info) << "Successfully set gui remote endpoint to " << endpoint << " and local endpoint to " << gui_socket_.local_endpoint() << "\n";
+            //                                     read_from_gui();
+            //                                 }
+            //                                 else
+            //                                 {
+            //                                     throw ConnectError("GUI");
+            //                                 }
+            //                            });
 
             // connect to server
             boost::asio::ip::tcp::resolver server_resolver(io_context);
@@ -56,7 +57,7 @@ namespace bomberman {
                                        {
                                            if(!ec)
                                            {
-                                               BOOST_LOG_TRIVIAL(info) << "Successfully connected to server at: " << endpoint << "\n";
+                                               BOOST_LOG_TRIVIAL(info) << "Successfully connected to server at: " << endpoint;
                                                read_header_from_server();
                                            }
                                            else
@@ -75,30 +76,37 @@ namespace bomberman {
             auto message_handle_callback = [this](const input_msg_ptr_t&& msg){
                 input_messages_q_.push(msg);
                 if (input_messages_q_.size() == 1)
-                    handle_gui_message();
+                {
+                    // order handling message
+                    boost::asio::post([this](){handle_gui_message();});
+                }
+
+                BOOST_LOG_TRIVIAL(debug) << "starting read_from_gui again";
+                read_from_gui();
             };
 
+            BOOST_LOG_TRIVIAL(debug) << "in read_from_gui, calling gui_deserializer_.get_message";
             gui_deserializer_.get_message(message_handle_callback);
         }
 
         void handle_gui_message()
         {
-            while(!input_messages_q_.empty())
-            {
-                client_msg_ptr_t client_msg = nullptr;
+            // while(!input_messages_q_.empty())
+            // {
+            //     client_msg_ptr_t client_msg = nullptr;
 
-                if(state == LOBBY)
-                {
-                    client_msg = std::make_shared;
-                }
+            //     if(state == LOBBY)
+            //     {
+            //         client_msg = std::make_shared;
+            //     }
 
-                input_msg_ptr_t input_messages = input_messages_q_.front();
+            //     input_msg_ptr_t input_messages = input_messages_q_.front();
 
-                switch(input_messages->message_code)
-                {
-                    case
-                }
-            }
+            //     switch(input_messages->message_code)
+            //     {
+            //         case
+            //     }
+            // }
         }
 
     private:
@@ -106,11 +114,12 @@ namespace bomberman {
         boost::asio::io_context &io_context_;
         boost::asio::ip::tcp::socket server_socket_;
         boost::asio::ip::udp::socket gui_socket_;
-        UdpDeserializer gui_deserializer_;
+        bomberman::UdpDeserializer gui_deserializer_;
         std::string player_name_;
         enum client_state_t {
             LOBBY, IN_GAME, OBSERVE
         } state;
+        boost::asio::ip::udp::resolver::iterator gui_endpoints_iter_;
         std::queue<input_msg_ptr_t> input_messages_q_;
         std::queue<server_msg_ptr_t> server_messages_q_;
         std::queue<client_msg_ptr_t> client_messages_q_;

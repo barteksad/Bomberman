@@ -52,7 +52,7 @@ namespace bomberman {
     };
 
     enum class input_message_t : message_t {
-        PlaceBomb, PlaceBlock, Move
+        PlaceBomb=0, PlaceBlock=1, Move=2
     };
 
     // message Move { direction }

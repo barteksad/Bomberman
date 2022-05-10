@@ -1,7 +1,3 @@
-//
-// Created by HYPERBOOK on 08.05.2022.
-//
-
 #ifndef BOMBERMAN_MESSAGES_H
 #define BOMBERMAN_MESSAGES_H
 
@@ -66,32 +62,6 @@ namespace bomberman {
 
     protected:
 
-//        bool is_next_data_chunk_available(std::size_t, std::function<void(NetDeserializer &)>)
-//        {
-//            BOOST_LOG_TRIVIAL(error) << "Error, unimplemented!\n";
-//            return false;
-//        }
-
-//        template<class T>
-//        void is_next_data_chunk_available(std::size_t n, std::function<T(void)> next_task) {
-//            if (read_idx + n <= write_idx)
-//                return true;
-//
-//            if (read_idx + n > buffer.size())
-//                buffer.resize(read_idx + n);
-//
-//            socket_.async_read(boost::asio::buffer(buffer.data() + n + read_idx - write_idx, buffer.size()),
-//                               [this, &next_task](boost::system::error_code ec, std::size_t read_length) {
-//                                   if (!ec) {
-//                                       this->write_idx += read_length
-//                                       this->next_task();
-//                                   } else {
-//                                       socket_.close();
-//                                   }
-//                               });
-//          return false;
-//        }
-
         template<typename T>
         T decode_number() {
             T result;
@@ -108,11 +78,14 @@ namespace bomberman {
             return result;
         }
 
+
         S &socket_;
         buffer_t buffer;
         std::size_t read_idx;
         std::size_t write_idx;
 
+        protected:
+            virtual void reset_state()=0;
     };
 
     class UdpDeserializer : public NetDeserializer<boost::asio::ip::udp::socket> {
@@ -124,16 +97,18 @@ namespace bomberman {
         void get_message(auto message_handle_callback) {
             // if buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty()) {
-                buffer.resize(MAX_GUI_TO_CLIENT_MESSAGE_SIZE);
+                BOOST_LOG_TRIVIAL(debug) << "Start gui async receive\n";
+                buffer.resize(MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1);
                 // receive up to maximum message length + 1 to check if upd datagram is not too long
-                socket_.async_receive(boost::asio::buffer(buffer.data(), buffer.size() + 1),
+                socket_.async_receive(boost::asio::buffer(buffer.data(), MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1),
                                       [=, this](boost::system::error_code ec, std::size_t read_length) {
                                           if (!ec) {
                                               this->write_idx += read_length;
+                                              BOOST_LOG_TRIVIAL(debug) << "Received " << read_length << " bytes from gui";
                                               get_message(message_handle_callback);
                                           } else {
                                               socket_.close();
-                                              BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message while async_receive\n";
+                                              BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message while async_receive";
                                               throw ReceiveError("GUI");
                                           }
                                       });
@@ -142,11 +117,12 @@ namespace bomberman {
 
             input_msg_ptr_t input_msg_ptr;
             auto message_code = decode_number<input_message_t>();
+            BOOST_LOG_TRIVIAL(debug) << "GUI message code: " << (uint8_t) message_code;
             switch (message_code) {
                 case input_message_t::PlaceBomb:
                     if (write_idx != 1)
                     {
-                        BOOST_LOG_TRIVIAL(debug) << "invalid message length for input_message_t::PlaceBomb, write_idx =" << write_idx << "\n";
+                        BOOST_LOG_TRIVIAL(debug) << "invalid message length for input_message_t::PlaceBomb, write_idx =" << write_idx;
                         throw InvalidMessage("GUI");
                     }
                     input_msg_ptr = std::make_shared<PlaceBomb>();
@@ -154,7 +130,7 @@ namespace bomberman {
                 case input_message_t::PlaceBlock:
                     if (write_idx != 1)
                     {
-                        BOOST_LOG_TRIVIAL(debug) << "invalid message length for input_message_t::PlaceBlock, write_idx =" << write_idx << "\n";
+                        BOOST_LOG_TRIVIAL(debug) << "invalid message length for input_message_t::PlaceBlock, write_idx =" << write_idx;
                         throw InvalidMessage("GUI");
                     }
                     input_msg_ptr = std::make_shared<PlaceBlock>();
@@ -163,15 +139,27 @@ namespace bomberman {
                     auto direction = decode_number<direction_t>();
                     if (write_idx != 2 || direction > direction_t::Left)
                     {
-                        BOOST_LOG_TRIVIAL(debug) << "invalid message for input_message_t::Move, write_idx =" << write_idx << ", direction = " << (uint8_t)direction << "\n";
+                        BOOST_LOG_TRIVIAL(debug) << "invalid message for input_message_t::Move, write_idx =" << write_idx << ", direction = " << (uint8_t)direction;
                         throw InvalidMessage("GUI");
                     }
                     input_msg_ptr = std::make_shared<Move>(direction);
                     break;
             }
 
+            
+            BOOST_LOG_TRIVIAL(debug) << "RECEIVED MESSAGE!\n";
+            reset_state();
+
             message_handle_callback(std::move(input_msg_ptr));
         }
+
+        protected:
+            void reset_state() override 
+            {
+                buffer.resize(0);
+                write_idx=0;
+                read_idx=0;
+            }
     };
 
 } // namespace bomberman
