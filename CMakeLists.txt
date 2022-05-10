@@ -3,7 +3,8 @@ project (Bomberman)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_COMPILER "/usr/bin/g++-11")
-set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion -Werror -O2")
+set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion  -O2")
+#set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion -Werror -O2")
 
 
 # http://stackoverflow.com/questions/10555706/

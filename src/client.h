@@ -10,6 +10,9 @@
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
 
+#include <queue>
+#include <memory>
+
 namespace bomberman {
 
     class RobotsClient {
@@ -22,7 +25,7 @@ namespace bomberman {
                 : io_context_(io_context),
                 server_socket_(io_context),
                 gui_socket_(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port)),
-                  gui_deserializer_(gui_socket_),
+                gui_deserializer_(gui_socket_),
                 player_name_(player_name),
                 state(LOBBY) {
 
@@ -69,7 +72,33 @@ namespace bomberman {
         }
         void read_from_gui()
         {
+            auto message_handle_callback = [this](const input_msg_ptr_t&& msg){
+                input_messages_q_.push(msg);
+                if (input_messages_q_.size() == 1)
+                    handle_gui_message();
+            };
 
+            gui_deserializer_.get_message(message_handle_callback);
+        }
+
+        void handle_gui_message()
+        {
+            while(!input_messages_q_.empty())
+            {
+                client_msg_ptr_t client_msg = nullptr;
+
+                if(state == LOBBY)
+                {
+                    client_msg = std::make_shared;
+                }
+
+                input_msg_ptr_t input_messages = input_messages_q_.front();
+
+                switch(input_messages->message_code)
+                {
+                    case
+                }
+            }
         }
 
     private:
@@ -82,6 +111,10 @@ namespace bomberman {
         enum client_state_t {
             LOBBY, IN_GAME, OBSERVE
         } state;
+        std::queue<input_msg_ptr_t> input_messages_q_;
+        std::queue<server_msg_ptr_t> server_messages_q_;
+        std::queue<client_msg_ptr_t> client_messages_q_;
+        std::queue<draw_msg_ptr_t> draw_messages_q_;
     };
 
 } // namespace bomberman

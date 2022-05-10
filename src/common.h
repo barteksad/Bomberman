@@ -72,6 +72,14 @@ namespace bomberman {
         :    std::runtime_error("Failed to receive message from " + from + " ") {}
 
     };
+
+    class InvalidMessage : public std::runtime_error
+    {
+    public:
+    explicit InvalidMessage(std::string &&from)
+    :    std::runtime_error("Received invalid message from " + from + " ") {}
+
+};
 } // bomberman
 
 #endif //BOMBERMAN_COMMON_H
