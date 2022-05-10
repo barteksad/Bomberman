@@ -91,22 +91,32 @@ namespace bomberman {
 
         void handle_gui_message()
         {
-            // while(!input_messages_q_.empty())
-            // {
-            //     client_msg_ptr_t client_msg = nullptr;
+            while(!input_messages_q_.empty())
+            {
+                client_msg_ptr_t client_msg = nullptr;
 
-            //     if(state == LOBBY)
-            //     {
-            //         client_msg = std::make_shared;
-            //     }
+                if(state == LOBBY)
+                {
+                    client_msg = std::make_shared<Join>(player_name_);
+                }
+                else if (state == IN_GAME)
+                {
+                    input_msg_ptr_t input_message = input_messages_q_.front();
+                    switch(input_message->message_code)
+                    {
+                        case input_message_t::PlaceBomb:
+                            client_msg = std::make_shared<ClientPlaceBomb>();
+                            break;
+                        case input_message_t::PlaceBlock:
+                            client_msg = std::make_shared<ClientPlaceBlock>();
+                            break;
+                        case input_message_t::Move:
+                            client_msg = std::make_shared<ClientMove>(input_message.get());
+                            break;
+                    }
+                }
 
-            //     input_msg_ptr_t input_messages = input_messages_q_.front();
-
-            //     switch(input_messages->message_code)
-            //     {
-            //         case
-            //     }
-            // }
+            }
         }
 
     private:
