@@ -49,7 +49,7 @@ int main(int ac, char *av[])
         BOOST_LOG_TRIVIAL(info) << "Run with arguments, server_endpoint_input: " << server_endpoint_input
                                 << ", gui_endpoint_input: " << gui_endpoint_input
                                 << ", player_name: " << player_name
-                                << ", port: " << port << " \n\n";
+                                << ", port: " << port;
 
         // run client
         boost::asio::io_context io_context;
