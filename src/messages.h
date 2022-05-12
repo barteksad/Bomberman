@@ -28,6 +28,7 @@
 // boost::placeholders
 #include <queue>
 #include <variant>
+#include <bit>
 
 namespace bomberman
 {
