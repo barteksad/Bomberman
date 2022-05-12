@@ -10,6 +10,21 @@
 #include <boost/log/expressions.hpp>
 
 #include <boost/bind/bind.hpp>
+#include <boost/asio/spawn.hpp>
+
+// #include <boost/asio/co_spawn.hpp>
+// #include <boost/asio/detached.hpp>
+// #include <boost/asio/io_context.hpp>
+// #include <boost/asio/ip/tcp.hpp>
+// #include <boost/asio/signal_set.hpp>
+// #include <boost/asio/write.hpp>
+// #include <cstdio>
+
+// using boost::asio::awaitable;
+// using boost::asio::co_spawn;
+// using boost::asio::detached;
+// using boost::asio::use_awaitable;
+
 // boost::placeholders
 #include <queue>
 #include <variant>
@@ -138,6 +153,7 @@ namespace bomberman
             : socket_(socket), read_idx(0), write_idx(0) {}
 
     protected:
+
         template <typename T>
         T decode_number()
         {
@@ -161,7 +177,12 @@ namespace bomberman
         std::size_t write_idx;
 
     protected:
-        virtual void reset_state() = 0;
+        void reset_state()
+        {
+            buffer.resize(0);
+            read_idx = 0;
+            write_idx = 0;
+        }
     };
 
     class NetSerializer
@@ -189,13 +210,85 @@ namespace bomberman
         std::size_t write_idx;
     };
 
-    class TcpNetDeserializer : public NetDeserializer<boost::asio::ip::tcp::socket>
+    class TcpDeserializer : public NetDeserializer<boost::asio::ip::tcp::socket>
     {
-        public:
-            explicit TcpNetDeserializer(boost::asio::ip::tcp::socket &socket)
-                : NetDeserializer(socket) {}
+    public:
+        explicit TcpDeserializer(boost::asio::ip::tcp::socket &socket)
+            : NetDeserializer(socket) {}
 
-        void get_server_message(auto message_handle_callback)
+        void get_server_message(auto message_handle_callback, boost::asio::yield_context yield)
+        {
+            BOOST_LOG_TRIVIAL(debug) << "in TcpDeserializer::get_server_message";
+            auto message_code = get_number<server_message_code_t>(yield);
+            switch (message_code)
+            {
+            case server_message_code_t::Hello:
+                return get_hello_message();
+            case server_message_code_t::AcceptedPlayer:
+                return get_accepted_player_message();
+            case server_message_code_t::GameStarted:
+                return get_game_started_message();
+            case server_message_code_t::Turn:
+                return get_turn_message();
+            case server_message_code_t::GameEnded:
+                return get_game_ended_message();
+            }
+
+        }
+
+    private:
+
+        void read_n_bytes(std::size_t read_n, boost::asio::yield_context yield)
+        {
+            buffer.resize(buffer.size() + read_n);
+            boost::system::error_code ec;
+            BOOST_LOG_TRIVIAL(debug) << "server start waiting for " << read_n << " bytes";
+            boost::asio::async_read(socket_, boost::asio::buffer(buffer.data() + write_idx, read_n), yield[ec]);
+            if (!ec)
+            {
+                BOOST_LOG_TRIVIAL(debug) << "Received " << read_n << " bytes from server";
+            }
+            else
+            {
+                BOOST_LOG_TRIVIAL(debug) << "Error in TcpDeserializer::read_n_bytes while async_read";
+                throw ReceiveError("Server");
+            } 
+            write_idx += read_n;
+        }
+        
+        template <typename T>
+        T get_number(boost::asio::yield_context yield)
+        {
+            std::size_t read_n = sizeof(T);
+            read_n_bytes(read_n, yield);
+            return decode_number<T>();
+        }
+
+        std::string get_string(boost::asio::yield_context yield)
+        {
+            str_len_t str_len = get_number<str_len_t>(yield);
+            read_n_bytes((std::size_t) str_len, yield);
+            std::string result;
+            while(read_idx < write_idx)
+                result.push_back(buffer[read_idx++]);
+            return result;
+        }
+
+        void get_hello_message()
+        {
+
+        }
+
+        void get_accepted_player_message()
+        {
+        }
+        void get_game_started_message()
+        {
+        }
+        void get_turn_message()
+        {
+        }
+        void get_game_ended_message()
         {
         }
     };
@@ -224,7 +317,6 @@ namespace bomberman
                                           }
                                           else
                                           {
-                                              socket_.close();
                                               BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message while async_receive";
                                               throw ReceiveError("GUI");
                                           }
@@ -268,14 +360,6 @@ namespace bomberman
             reset_state();
 
             message_handle_callback(input_message);
-        }
-
-    protected:
-        void reset_state() override
-        {
-            buffer.resize(0);
-            write_idx = 0;
-            read_idx = 0;
         }
     };
 

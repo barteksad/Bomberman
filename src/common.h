@@ -66,6 +66,15 @@ namespace bomberman
         Move = 2
     };
 
+    enum class server_message_code_t : message_t
+    {
+        Hello = 0,
+        AcceptedPlayer = 1,
+        GameStarted = 2,
+        Turn=3,
+        GameEnded=4
+    };
+
     using players_t = std::unordered_map<player_id_t, player_t>;
     using robots_destroyed_t = std::list<player_id_t>;
     using blocks_destroyed_t = std::list<position_t>;

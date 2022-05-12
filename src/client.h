@@ -5,6 +5,8 @@
 #include "messages.h"
 
 #include <boost/asio.hpp>
+#include <boost/asio/spawn.hpp>
+#include <boost/bind/placeholders.hpp>
 
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
@@ -13,6 +15,7 @@
 #include <queue>
 #include <memory>
 
+#include <unistd.h> // getpid
 namespace
 {
 
@@ -41,6 +44,7 @@ namespace bomberman
             : io_context_(io_context),
               server_socket_(io_context),
               gui_socket_(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port)),
+              server_deserializer_(server_socket_),
               gui_deserializer_(gui_socket_),
               player_name_(player_name),
               state(LOBBY)
@@ -50,21 +54,7 @@ namespace bomberman
             boost::asio::ip::udp::resolver gui_resolver(io_context);
             auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
             gui_endpoints_iter_ = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1));
-            boost::asio::post([this]()
-                              { read_from_gui(); });
-            // boost::asio::async_connect(gui_socket_, gui_endpoints,
-            //                            [this](boost::system::error_code ec, const boost::asio::ip::udp::endpoint& endpoint)
-            //                            {
-            //                                 if(!ec)
-            //                                 {
-            //                                     BOOST_LOG_TRIVIAL(info) << "Successfully set gui remote endpoint to " << endpoint << " and local endpoint to " << gui_socket_.local_endpoint() << "\n";
-            //                                     read_from_gui();
-            //                                 }
-            //                                 else
-            //                                 {
-            //                                     throw ConnectError("GUI");
-            //                                 }
-            //                            });
+            boost::asio::post(boost::bind(&RobotsClient::read_from_gui, this));
 
             // connect to server
             boost::asio::ip::tcp::resolver server_resolver(io_context);
@@ -76,7 +66,7 @@ namespace bomberman
                                            if (!ec)
                                            {
                                                BOOST_LOG_TRIVIAL(info) << "Successfully connected to server at: " << endpoint;
-                                               read_header_from_server();
+                                               boost::asio::spawn(io_context_, [this](boost::asio::yield_context yield){read_from_server(yield);});
                                            }
                                            else
                                            {
@@ -85,25 +75,25 @@ namespace bomberman
                                        });
         }
 
-        void read_header_from_server()
+        void read_from_server(boost::asio::yield_context yield)
         {
-            static std::vector<message_t> message_code_buffer(1);
-            server_socket_.async_receive(boost::asio::buffer(message_code_buffer.data(), sizeof(message_t)),
-            [=, this](boost::system::error_code ec, std::size_t read_length)
-                                      {
-                                          if (!ec)
-                                          {
-                                              
-                                              BOOST_LOG_TRIVIAL(debug) << "Received " << read_length << " bytes from server";
-                                              get_message(message_handle_callback);
-                                          }
-                                          else
-                                          {
-                                              BOOST_LOG_TRIVIAL(debug) << "Error in TcpNetDeserializer::get_server_message while async_receive";
-                                              throw ReceiveError("GUI");
-                                          }
-                                      });
+            auto message_handle_callback = [this, yield](const server_message_t msg)
+            {
+                server_messages_q_.push(msg);
+                if (server_messages_q_.size() == 1)
+                {
+                    // order handling message
+                    boost::asio::post(boost::bind(&RobotsClient::handle_server_message, this));
+                }
+
+                BOOST_LOG_TRIVIAL(debug) << "starting read_from_server again";
+                read_from_server(yield);
+            };
+
+            BOOST_LOG_TRIVIAL(debug) << "in read_from_server, calling tcp_deserializer_.get_server_message";
+            server_deserializer_.get_server_message(message_handle_callback, yield);
         }
+
         void read_from_gui()
         {
             auto message_handle_callback = [this](const input_message_t msg)
@@ -112,8 +102,7 @@ namespace bomberman
                 if (input_messages_q_.size() == 1)
                 {
                     // order handling message
-                    boost::asio::post([this]()
-                                      { handle_gui_message(); });
+                    boost::asio::post(boost::bind(&RobotsClient::handle_gui_message, this));
                 }
 
                 BOOST_LOG_TRIVIAL(debug) << "starting read_from_gui again";
@@ -160,6 +149,11 @@ namespace bomberman
             }
         }
 
+        void handle_server_message()
+        {
+            BOOST_LOG_TRIVIAL(debug) << "in handle server message!";
+        }
+
         void send_to_server()
         {
             NetSerializer net_serializer;
@@ -180,6 +174,13 @@ namespace bomberman
                     throw SendError("Server");
                 } });
         }
+        
+        ~RobotsClient()
+        {
+            server_socket_.close();
+            gui_socket_.close();
+        }
+
 
     private:
         boost::asio::io_context &io_context_;
