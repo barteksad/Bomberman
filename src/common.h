@@ -38,6 +38,11 @@ namespace bomberman
     struct position_t
     {
         uint16_t x, y;
+
+        bool operator==(const position_t other)
+        {
+            return (x == other.x) & (y == other.y);
+        }
     };
 
     struct player_t
@@ -75,16 +80,36 @@ namespace bomberman
         GameEnded=4
     };
 
+    enum class client_message_code_t : message_t
+    {
+        Join = 0,
+        PlaceBomb = 1,
+        PlaceBlock = 2,
+        Move=3
+    };
+
+    enum class event_code_t : message_t
+    {
+        BombPlaced=0,
+        BombExploded=1, 
+        PlayerMoved=2, 
+        BlockPlaced=3
+    };
+
     using players_t = std::unordered_map<player_id_t, player_t>;
     using robots_destroyed_t = std::list<player_id_t>;
     using blocks_destroyed_t = std::list<position_t>;
     using player_positions_t = std::unordered_map<player_id_t, position_t>;
+    using id_to_bomb_pos_t = std::unordered_map<bomb_id_t, position_t>;
+    using player_to_position_t = std::unordered_map<player_id_t, position_t>;
+    using explosions_t = std::list<position_t>;
     using blocks_t = std::list<position_t>;
     using bombs_t = std::list<bomb_t>;
     using scores_t = std::unordered_map<player_id_t, score_t>;
 
     struct BombPlaced
     {
+        BombPlaced(){};
         BombPlaced(bomb_id_t _bomb_id, position_t _position)
             : bomb_id(_bomb_id), position(_position) {}
         bomb_id_t bomb_id;
@@ -93,6 +118,7 @@ namespace bomberman
 
     struct BombExploded
     {
+        BombExploded(){};
         BombExploded(bomb_id_t _bomb_id,
                      robots_destroyed_t &_robots_destroyed,
                      blocks_destroyed_t &_blocks_destroyed)
@@ -103,6 +129,7 @@ namespace bomberman
     };
     struct PlayerMoved
     {
+        PlayerMoved(){};
         PlayerMoved(player_id_t _player_id, position_t _position)
             : player_id(_player_id), position(_position) {}
         player_id_t player_id;
@@ -110,6 +137,7 @@ namespace bomberman
     };
     struct BlockPlaced
     {
+        BlockPlaced(){};
         BlockPlaced(position_t _position)
             : position(_position) {}
         position_t position;
