@@ -12,6 +12,8 @@
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
 
+#include <boost/asio/ip/tcp.hpp>
+
 #include <queue>
 #include <memory>
 
@@ -64,6 +66,8 @@ namespace bomberman
                                        {
                                            if (!ec)
                                            {
+                                               boost::asio::ip::tcp::no_delay option(true);
+                                               server_socket_.set_option(option);
                                                BOOST_LOG_TRIVIAL(info) << "Successfully connected to server at: " << endpoint;
                                                boost::asio::spawn(io_context_, [this](boost::asio::yield_context yield){read_from_server(yield);});
                                            }
@@ -194,12 +198,12 @@ namespace bomberman
                                     if(bomb_it ==  game_state.bombs.end())
                                         throw InvalidMessage("Server");
                                     game.explosions.push_back(bomb_pos_it->second);
-                                    for(player_id_t &robot_destroyed : bomb_exploded.robots_destroyed)
+                                    for(const player_id_t &robot_destroyed : bomb_exploded.robots_destroyed)
                                     {
                                         game_state.scores[robot_destroyed]++;
                                         game_state.player_to_position.erase(robot_destroyed);
                                     }
-                                    for(position_t &block_destroyed : bomb_exploded.blocks_destroyed)
+                                    for(const position_t &block_destroyed : bomb_exploded.blocks_destroyed)
                                         game_state.blocks.remove(block_destroyed);
                                     game_state.id_to_bomb_pos.erase(bomb_pos_it);
                                     game_state.bombs.erase(bomb_it);

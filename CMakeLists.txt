@@ -3,7 +3,7 @@ project (Bomberman)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_COMPILER "/usr/bin/g++-11")
-set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion")
+set(CMAKE_CXX_FLAGS "-std=gnu++20 -g -Wall -Wextra -Wconversion")
 #set(CMAKE_CXX_FLAGS "-std=gnu++20 -Wall -Wextra -Wconversion -Werror -O2")
 
 
@@ -25,6 +25,7 @@ add_executable(robots-client src/robots-client.cpp src/client.h src/messages.h s
 
 # TEST
 add_executable(test-message-serialization test/test-message-serialization.cpp src/client.h src/messages.h src/common.h src/common.h src/messages.h src/client.h test/test-message-serialization.cpp)
+add_executable(test_timer test/test_timer.cpp src/client.h src/messages.h src/common.h src/common.h src/messages.h src/client.h test/test_timer.cpp)
 
 
 
