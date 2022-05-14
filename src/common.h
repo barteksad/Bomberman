@@ -88,6 +88,12 @@ namespace bomberman
         Move=3
     };
 
+    enum class draw_message_code_t : message_t
+    {
+        Lobby = 0,
+        Game = 1,
+    };
+
     enum class event_code_t : message_t
     {
         BombPlaced=0,

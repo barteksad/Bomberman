@@ -23,6 +23,9 @@ INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIR} )
 
 add_executable(robots-client src/robots-client.cpp src/client.h src/messages.h src/common.h src/common.h src/messages.h src/client.h src/robots-client.cpp)
 
+# TEST
+add_executable(test-message-serialization test/test-message-serialization.cpp src/client.h src/messages.h src/common.h src/common.h src/messages.h src/client.h test/test-message-serialization.cpp)
+
 
 
 install(TARGETS DESTINATION .)

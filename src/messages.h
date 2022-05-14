@@ -308,6 +308,7 @@ namespace bomberman
 
         void write_lobby(Lobby& lobby)
         {
+            write_number<draw_message_code_t>(draw_message_code_t::Lobby);
             write_string(lobby.server_name);
             write_number<players_count_t>(lobby.players_count);
             write_number<size_x_t>(lobby.size_x);
@@ -326,6 +327,7 @@ namespace bomberman
 
         void write_game(Game& game)
         {
+            write_number<draw_message_code_t>(draw_message_code_t::Game);
             write_string(game.server_name);
             write_number<size_x_t>(game.size_x);
             write_number<size_y_t>(game.size_y);

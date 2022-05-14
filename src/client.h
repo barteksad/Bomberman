@@ -265,7 +265,7 @@ namespace bomberman
                 NetSerializer net_serializer;
                 buffer_t buffer = net_serializer.serialize(draw_messages_q_.front());
                 BOOST_LOG_TRIVIAL(debug) << "start sending to gui " << buffer.size() << " bytes";
-                gui_socket_.send_to(boost::asio::buffer(buffer,buffer.size()), gui_endpoints_iter_->endpoint());
+                gui_socket_.send_to(boost::asio::buffer(buffer, buffer.size()), gui_endpoints_iter_->endpoint());
                 draw_messages_q_.pop();
             }
         }
@@ -276,8 +276,8 @@ namespace bomberman
             gui_socket_.close();
         }
 
-
-    private:
+    // TODO!
+    // private:
         boost::asio::io_context &io_context_;
         boost::asio::ip::tcp::socket server_socket_;
         boost::asio::ip::udp::socket gui_socket_;
