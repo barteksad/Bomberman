@@ -9,6 +9,7 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 #include <vector>
 #include <exception>
 #include <variant>
@@ -39,11 +40,19 @@ namespace bomberman
     {
         uint16_t x, y;
 
-        bool operator==(const position_t other)
+        bool operator==(const position_t& other) const noexcept
         {
             return (x == other.x) & (y == other.y);
         }
+        struct hash
+        {
+            std::size_t operator()(const position_t &position) const noexcept
+            {
+                return std::hash<uint16_t>{}(position.x) ^ std::hash<uint16_t>{}(position.y); 
+            }
+        };
     };
+
 
     struct player_t
     {
@@ -103,14 +112,14 @@ namespace bomberman
     };
 
     using players_t = std::unordered_map<player_id_t, player_t>;
-    using robots_destroyed_t = std::list<player_id_t>;
-    using blocks_destroyed_t = std::list<position_t>;
+    using robots_destroyed_t = std::unordered_set<player_id_t>;
+    using blocks_destroyed_t = std::unordered_set<position_t, position_t::hash>;
     using player_positions_t = std::unordered_map<player_id_t, position_t>;
     using id_to_bomb_pos_t = std::unordered_map<bomb_id_t, position_t>;
     using player_to_position_t = std::unordered_map<player_id_t, position_t>;
-    using explosions_t = std::list<position_t>;
-    using blocks_t = std::list<position_t>;
-    using bombs_t = std::list<bomb_t>;
+    using explosions_t = std::unordered_set<position_t, position_t::hash>;
+    using blocks_t = std::unordered_set<position_t, position_t::hash>;
+    using bombs_t = std::unordered_map<bomb_id_t, bomb_t>;
     using scores_t = std::unordered_map<player_id_t, score_t>;
 
     struct BombPlaced

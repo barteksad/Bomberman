@@ -371,9 +371,9 @@ namespace bomberman
                           });
             write_number<list_len_t>((list_len_t)game.bombs.size());
             std::for_each(game.bombs.begin(), game.bombs.end(),
-                          [this](auto &bomb)
+                          [this](auto &bomb_pair)
                           {
-                              write_bomb(bomb);
+                              write_bomb(bomb_pair.second);
                           });
             write_number<list_len_t>((list_len_t)game.explosions.size());
             std::for_each(game.explosions.begin(), game.explosions.end(),
@@ -437,10 +437,10 @@ namespace bomberman
                                           write_number<event_code_t>(event_code_t::BombExploded);
                                           write_number<bomb_id_t>(bomb_exploded.bomb_id);
                                           write_number<list_len_t>((list_len_t)bomb_exploded.robots_destroyed.size());
-                                          for (player_id_t &player_id : bomb_exploded.robots_destroyed)
+                                          for (const player_id_t &player_id : bomb_exploded.robots_destroyed)
                                               write_number<player_id_t>(player_id);
                                           write_number<list_len_t>((list_len_t)bomb_exploded.blocks_destroyed.size());
-                                          for (position_t &block_pos : bomb_exploded.blocks_destroyed)
+                                          for (const position_t &block_pos : bomb_exploded.blocks_destroyed)
                                               write_position(block_pos);
                                       },
                                       [this](PlayerMoved &player_moved)
@@ -570,12 +570,12 @@ namespace bomberman
                 list_len_t rob_dest_list_len = get_number<list_len_t>(yield);
                 while (rob_dest_list_len--)
                 {
-                    bomb_exploded.robots_destroyed.push_back(get_number<player_id_t>(yield));
+                    bomb_exploded.robots_destroyed.insert(get_number<player_id_t>(yield));
                 }
                 list_len_t block_dest_list_len = get_number<list_len_t>(yield);
                 while (block_dest_list_len--)
                 {
-                    bomb_exploded.blocks_destroyed.push_back(
+                    bomb_exploded.blocks_destroyed.insert(
                         position_t{
                             .x = get_number<size_x_t>(yield),
                             .y = get_number<size_y_t>(yield),

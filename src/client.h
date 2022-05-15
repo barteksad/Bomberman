@@ -55,7 +55,8 @@ namespace bomberman
             boost::asio::ip::udp::resolver gui_resolver(io_context);
             auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
             gui_endpoints_iter_ = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1));
-            boost::asio::post(boost::bind(&RobotsClient::read_from_gui, this));
+            // boost::asio::post(boost::bind(&RobotsClient::read_from_gui, this));
+            read_from_gui();
 
             // connect to server
             boost::asio::ip::tcp::resolver server_resolver(io_context);
@@ -83,10 +84,11 @@ namespace bomberman
             auto message_handle_callback = [this, yield](const server_message_t msg)
             {
                 server_messages_q_.push(msg);
-                if (!server_messages_q_.empty())
+                if (server_messages_q_.size() == 1)
                 {
                     // order handling message
-                    boost::asio::post(boost::bind(&RobotsClient::handle_server_message, this));
+                    // boost::asio::post(boost::bind(&RobotsClient::handle_server_message, this));
+                    handle_server_message();
                 }
 
                 BOOST_LOG_TRIVIAL(debug) << "starting read_from_server again";
@@ -102,10 +104,11 @@ namespace bomberman
             auto message_handle_callback = [this](const input_message_t msg)
             {
                 input_messages_q_.push(msg);
-                if (!input_messages_q_.empty())
+                if (input_messages_q_.size() == 1)
                 {
                     // order handling message
-                    boost::asio::post(boost::bind(&RobotsClient::handle_gui_message, this));
+                    // boost::asio::post(boost::bind(&RobotsClient::handle_gui_message, this));
+                    handle_gui_message();
                 }
 
                 BOOST_LOG_TRIVIAL(debug) << "starting read_from_gui again";
@@ -118,6 +121,8 @@ namespace bomberman
 
         void handle_gui_message()
         {
+            bool is_empty = client_messages_q_.empty();
+
             while (!input_messages_q_.empty())
             {
                 if (state == LOBBY)
@@ -148,10 +153,9 @@ namespace bomberman
 
             }
 
-            if (!client_messages_q_.empty())
+            if (is_empty)
             {
-                boost::asio::post([this]()
-                                  { send_to_server(); });
+                send_to_server();
             }
         }
 
@@ -160,6 +164,7 @@ namespace bomberman
             BOOST_LOG_TRIVIAL(debug) << "in handle server message!";
             while(!server_messages_q_.empty())
             {
+                bool is_empty = draw_messages_q_.empty();
                 std::visit(overloaded{
                     [this](Hello& hello)
                     {
@@ -186,27 +191,28 @@ namespace bomberman
                             std::visit(overloaded{
                                 [this](BombPlaced &bomb_placed)
                                 {
-                                    game_state.bombs.push_back(bomb_t{.position = bomb_placed.position, .timer=game_state.hello.bomb_timer});
-                                    game_state.id_to_bomb_pos.insert({bomb_placed.bomb_id, bomb_placed.position});
+                                    game_state.bombs.insert({bomb_placed.bomb_id, bomb_t{.position = bomb_placed.position, .timer=game_state.hello.bomb_timer} });
                                 },
                                 [&game, this](BombExploded &bomb_exploded)
                                 {
-                                    auto bomb_pos_it = game_state.id_to_bomb_pos.find(bomb_exploded.bomb_id);
-                                    if(bomb_pos_it ==  game_state.id_to_bomb_pos.end())
-                                        throw InvalidMessage("Server");
-                                    auto bomb_it = std::find_if(game_state.bombs.begin(), game_state.bombs.end(), [&](bomb_t &bomb) {return bomb.position == bomb_pos_it->second; });
+                                    auto bomb_it  = game_state.bombs.find(bomb_exploded.bomb_id);
                                     if(bomb_it ==  game_state.bombs.end())
-                                        throw InvalidMessage("Server");
-                                    game.explosions.push_back(bomb_pos_it->second);
+                                    {
+                                        // UB
+                                        // throw InvalidMessage("Server");
+                                    }
+                                    else
+                                    {
+                                        game.explosions.insert(bomb_it->second.position);
+                                        game_state.bombs.erase(bomb_it);
+                                    }
                                     for(const player_id_t &robot_destroyed : bomb_exploded.robots_destroyed)
                                     {
                                         game_state.scores[robot_destroyed]++;
                                         game_state.player_to_position.erase(robot_destroyed);
                                     }
                                     for(const position_t &block_destroyed : bomb_exploded.blocks_destroyed)
-                                        game_state.blocks.remove(block_destroyed);
-                                    game_state.id_to_bomb_pos.erase(bomb_pos_it);
-                                    game_state.bombs.erase(bomb_it);
+                                        game_state.blocks.erase(block_destroyed);
                                 },
                                 [this](PlayerMoved &player_moved)
                                 {
@@ -214,9 +220,14 @@ namespace bomberman
                                 },
                                 [this](BlockPlaced &block_placed)
                                 {
-                                    game_state.blocks.push_back(block_placed.position);
+                                    game_state.blocks.insert(block_placed.position);
                                 },
                             }, event);
+                        }
+                        for(auto& bomb_pair : game_state.bombs)
+                        {
+                            if(bomb_pair.second.timer > 0)
+                                bomb_pair.second.timer--;
                         }
                         game.players_positions = game_state.player_to_position;
                         game.blocks = game_state.blocks;
@@ -231,10 +242,12 @@ namespace bomberman
                     }
                 }, server_messages_q_.front()); 
 
-                if(!draw_messages_q_.empty())
+                if(is_empty)
                 {
-                    boost::asio::post(boost::bind(&RobotsClient::send_to_gui, this));
+                    // boost::asio::post(boost::bind(&RobotsClient::send_to_gui, this));
+                    send_to_gui();
                 }
+
                 server_messages_q_.pop();
             }
         }
