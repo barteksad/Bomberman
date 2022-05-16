@@ -282,6 +282,8 @@ namespace bomberman
             input_message_t input_message;
             auto message_code = decode_number<input_message_code_t>();
             BOOST_LOG_TRIVIAL(debug) << "GUI message code: " << static_cast<std::underlying_type<input_message_code_t>::type>(message_code);
+            if(message_code < input_message_code_t::PlaceBomb || message_code > input_message_code_t::Move)
+                throw InvalidMessage("GUI");
             switch (message_code)
             {
             case input_message_code_t::PlaceBomb:

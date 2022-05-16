@@ -169,6 +169,8 @@ namespace bomberman
                     [this](Turn &turn)
                     {   
                         Game game(game_state.hello, turn.turn, game_state.players);
+                        std::unordered_set<player_id_t> who_to_add_score;
+
                         for(event_t &event: turn.events)
                         {   
                             std::visit(overloaded{
@@ -176,7 +178,7 @@ namespace bomberman
                                 {
                                     game_state.bombs.insert({bomb_placed.bomb_id, bomb_t{.position = bomb_placed.position, .timer=game_state.hello.bomb_timer} });
                                 },
-                                [&game, this](BombExploded &bomb_exploded)
+                                [&game, &who_to_add_score, this](BombExploded &bomb_exploded)
                                 {
                                     auto bomb_it  = game_state.bombs.find(bomb_exploded.bomb_id);
                                     if(bomb_it ==  game_state.bombs.end())
@@ -191,7 +193,7 @@ namespace bomberman
                                     }
                                     for(const player_id_t &robot_destroyed : bomb_exploded.robots_destroyed)
                                     {
-                                        game_state.scores[robot_destroyed]++;
+                                        who_to_add_score.insert(robot_destroyed);
                                         game_state.player_to_position.erase(robot_destroyed);
                                     }
                                     for(const position_t &block_destroyed : bomb_exploded.blocks_destroyed)
@@ -206,6 +208,10 @@ namespace bomberman
                                     game_state.blocks.insert(block_placed.position);
                                 },
                             }, event);
+                        }
+                        for(auto& player: who_to_add_score)
+                        {
+                            game_state.scores[player]++;
                         }
                         for(auto& bomb_pair : game_state.bombs)
                         {
