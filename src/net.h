@@ -254,21 +254,22 @@ namespace bomberman
         explicit UdpDeserializer(boost::asio::ip::udp::socket &socket)
             : NetDeserializer(socket) {reset_state();}
 
-        void get_message(auto message_handle_callback)
+        void get_message(auto message_handle_callback, boost::asio::ip::udp::endpoint& gui_endpoint)
         {
             // if buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty())
             {
                 buffer.resize(MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1);
                 // receive up to maximum message length + 1 to check if upd datagram is not too long
-                socket_.async_receive(boost::asio::buffer(buffer.data(), MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1),
-                                      [=, this](boost::system::error_code ec, std::size_t read_length)
+                socket_.async_receive_from(boost::asio::buffer(buffer.data(), MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1),
+                                        gui_endpoint, 
+                                      [message_handle_callback, &gui_endpoint, this](boost::system::error_code ec, std::size_t read_length)
                                       {
                                           if (!ec)
                                           {
                                               this->write_idx += read_length;
                                               BOOST_LOG_TRIVIAL(debug) << "received " << read_length << " bytes from gui";
-                                              get_message(message_handle_callback);
+                                              get_message(message_handle_callback, gui_endpoint);
                                           }
                                           else
                                           {

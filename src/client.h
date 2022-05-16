@@ -40,7 +40,7 @@ namespace bomberman
             // connect to GUI
             boost::asio::ip::udp::resolver gui_resolver(io_context);
             auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
-            gui_endpoints_iter_ = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1), ec);
+            gui_endpoint = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1), ec)->endpoint();
             if(ec)
                 throw InvalidArguments("Invalid GUI endpoint", ec);
             read_from_gui();
@@ -99,7 +99,7 @@ namespace bomberman
                 read_from_gui();
             };
 
-            gui_deserializer_.get_message(message_handle_callback);
+            gui_deserializer_.get_message(message_handle_callback, gui_endpoint);
         }
 
         void handle_gui_message()
@@ -136,7 +136,7 @@ namespace bomberman
 
             }
 
-            if (is_empty)
+            if (is_empty && !client_messages_q_.empty())
             {
                 send_to_server();
             }
@@ -231,7 +231,7 @@ namespace bomberman
                     }
                 }, server_messages_q_.front()); 
 
-                if(is_empty)
+                if(is_empty && !draw_messages_q_.empty())
                 {
                     send_to_gui();
                 }
@@ -270,7 +270,7 @@ namespace bomberman
                 NetSerializer net_serializer;
                 buffer_t buffer = net_serializer.serialize(draw_messages_q_.front());
                 BOOST_LOG_TRIVIAL(debug) << "start sending to gui " << buffer.size() << " bytes";
-                gui_socket_.send_to(boost::asio::buffer(buffer, buffer.size()), gui_endpoints_iter_->endpoint());
+                gui_socket_.send_to(boost::asio::buffer(buffer, buffer.size()), gui_endpoint);
                 draw_messages_q_.pop();
             }
         }
@@ -295,7 +295,7 @@ namespace bomberman
             IN_GAME,
             OBSERVE
         } state;
-        boost::asio::ip::udp::resolver::iterator gui_endpoints_iter_;
+        boost::asio::ip::udp::endpoint gui_endpoint;
         std::queue<input_message_t> input_messages_q_;
         std::queue<client_message_t> client_messages_q_;
         std::queue<server_message_t> server_messages_q_;
@@ -308,7 +308,6 @@ namespace bomberman
             players_t players;
             blocks_t blocks;
             bombs_t bombs;
-            id_to_bomb_pos_t id_to_bomb_pos;
             player_to_position_t player_to_position;
             scores_t scores;
         } game_state;
