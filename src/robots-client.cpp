@@ -46,7 +46,7 @@ int main(int ac, char *av[])
         player_name = vm["-n"].as<std::string>();
         port = vm["-p"].as<uint16_t>();
 
-        BOOST_LOG_TRIVIAL(info) << "Run with arguments, server_endpoint_input: " << server_endpoint_input
+        BOOST_LOG_TRIVIAL(debug) << "Run with arguments, server_endpoint_input: " << server_endpoint_input
                                 << ", gui_endpoint_input: " << gui_endpoint_input
                                 << ", player_name: " << player_name
                                 << ", port: " << port;
@@ -59,11 +59,14 @@ int main(int ac, char *av[])
     catch (std::exception &e)
     {
         BOOST_LOG_TRIVIAL(fatal) << "error: " << e.what() << "\n";
+        std::cerr << e.what();
         return 1;
     }
     catch (...)
     {
         BOOST_LOG_TRIVIAL(fatal) << "Exception of unknown type!\n";
+        std::cerr << "unknown problem\n";
+        return 1;
     }
 
 }

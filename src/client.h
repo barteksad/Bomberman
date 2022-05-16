@@ -1,8 +1,7 @@
 #ifndef BOMBERMAN_CLIENT_H
 #define BOMBERMAN_CLIENT_H
 
-#include "common.h"
-#include "messages.h"
+#include "net.h"
 
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
@@ -17,19 +16,6 @@
 #include <queue>
 #include <memory>
 
-// namespace
-// {
-
-//     // https://en.cppreference.com/w/cpp/utility/variant/visit
-//     template <class... Ts>
-//     struct overloaded : Ts...
-//     {
-//         using Ts::operator()...;
-//     };
-//     template <class... Ts>
-//     overloaded(Ts...) -> overloaded<Ts...>;
-
-// }
 
 namespace bomberman
 {
@@ -50,18 +36,21 @@ namespace bomberman
               player_name_(player_name),
               state(LOBBY)
         {
-
+            boost::system::error_code ec;
             // connect to GUI
             boost::asio::ip::udp::resolver gui_resolver(io_context);
             auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
-            gui_endpoints_iter_ = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1));
-            // boost::asio::post(boost::bind(&RobotsClient::read_from_gui, this));
+            gui_endpoints_iter_ = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1), ec);
+            if(ec)
+                throw InvalidArguments("Invalid GUI endpoint", ec);
             read_from_gui();
 
             // connect to server
             boost::asio::ip::tcp::resolver server_resolver(io_context);
             auto server_split_idx = server_endpoint_input.find(":"); // host:port
-            auto server_endpoints = server_resolver.resolve(server_endpoint_input.substr(0, server_split_idx), server_endpoint_input.substr(server_split_idx + 1));
+            auto server_endpoints = server_resolver.resolve(server_endpoint_input.substr(0, server_split_idx), server_endpoint_input.substr(server_split_idx + 1), ec);
+            if(ec)
+                throw InvalidArguments("Invalid server endpoint", ec);
             boost::asio::async_connect(server_socket_, server_endpoints,
                                        [this](boost::system::error_code ec, const boost::asio::ip::tcp::endpoint &endpoint)
                                        {
@@ -69,12 +58,12 @@ namespace bomberman
                                            {
                                                boost::asio::ip::tcp::no_delay option(true);
                                                server_socket_.set_option(option);
-                                               BOOST_LOG_TRIVIAL(info) << "Successfully connected to server at: " << endpoint;
+                                               BOOST_LOG_TRIVIAL(debug) << "Successfully connected to server at: " << endpoint;
                                                boost::asio::spawn(io_context_, [this](boost::asio::yield_context yield){read_from_server(yield);});
                                            }
                                            else
                                            {
-                                               throw ConnectError("server");
+                                               throw ConnectError("server", ec);
                                            }
                                        });
         }
@@ -86,8 +75,6 @@ namespace bomberman
                 server_messages_q_.push(msg);
                 if (server_messages_q_.size() == 1)
                 {
-                    // order handling message
-                    // boost::asio::post(boost::bind(&RobotsClient::handle_server_message, this));
                     handle_server_message();
                 }
 
@@ -95,7 +82,6 @@ namespace bomberman
                 read_from_server(yield);
             };
 
-            BOOST_LOG_TRIVIAL(debug) << "in read_from_server, calling tcp_deserializer_.get_server_message";
             server_deserializer_.get_server_message(message_handle_callback, yield);
         }
 
@@ -106,8 +92,6 @@ namespace bomberman
                 input_messages_q_.push(msg);
                 if (input_messages_q_.size() == 1)
                 {
-                    // order handling message
-                    // boost::asio::post(boost::bind(&RobotsClient::handle_gui_message, this));
                     handle_gui_message();
                 }
 
@@ -115,7 +99,6 @@ namespace bomberman
                 read_from_gui();
             };
 
-            BOOST_LOG_TRIVIAL(debug) << "in read_from_gui, calling gui_deserializer_.get_message";
             gui_deserializer_.get_message(message_handle_callback);
         }
 
@@ -244,7 +227,6 @@ namespace bomberman
 
                 if(is_empty)
                 {
-                    // boost::asio::post(boost::bind(&RobotsClient::send_to_gui, this));
                     send_to_gui();
                 }
 
@@ -269,7 +251,7 @@ namespace bomberman
                 }
                 else
                 {
-                    throw SendError("Server");
+                    throw SendError("Server", ec);
                 } });
         }
 
