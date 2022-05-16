@@ -7,6 +7,8 @@
 #include <boost/asio/spawn.hpp>
 #include <boost/bind/placeholders.hpp>
 
+#include <boost/program_options.hpp>
+
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
@@ -15,40 +17,44 @@
 
 #include <queue>
 #include <memory>
+#include "iostream"
 
 
 namespace bomberman
 {
 
+    struct robots_client_args_t
+    {
+        std::string server_endpoint_input, gui_endpoint_input, player_name;
+        uint16_t port;
+    };
+
     class RobotsClient
     {
     public:
         RobotsClient(boost::asio::io_context &io_context,
-                     std::string &server_endpoint_input,
-                     std::string &gui_endpoint_input,
-                     std::string &player_name,
-                     uint16_t port)
+                     robots_client_args_t& args)
             : io_context_(io_context),
               server_socket_(io_context),
-              gui_socket_(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port)),
+              gui_socket_(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), args.port)),
               server_deserializer_(server_socket_),
               gui_deserializer_(gui_socket_),
-              player_name_(player_name),
+              player_name_(args.player_name),
               state(LOBBY)
         {
             boost::system::error_code ec;
             // connect to GUI
             boost::asio::ip::udp::resolver gui_resolver(io_context);
-            auto gui_split_idx = gui_endpoint_input.find(":"); // host:port
-            gui_endpoint = gui_resolver.resolve(gui_endpoint_input.substr(0, gui_split_idx), gui_endpoint_input.substr(gui_split_idx + 1), ec)->endpoint();
+            auto gui_split_idx = args.gui_endpoint_input.find(":"); // host:port
+            gui_endpoint = gui_resolver.resolve(args.gui_endpoint_input.substr(0, gui_split_idx), args.gui_endpoint_input.substr(gui_split_idx + 1), ec)->endpoint();
             if(ec)
                 throw InvalidArguments("Invalid GUI endpoint", ec);
             read_from_gui();
 
             // connect to server
             boost::asio::ip::tcp::resolver server_resolver(io_context);
-            auto server_split_idx = server_endpoint_input.find(":"); // host:port
-            auto server_endpoints = server_resolver.resolve(server_endpoint_input.substr(0, server_split_idx), server_endpoint_input.substr(server_split_idx + 1), ec);
+            auto server_split_idx = args.server_endpoint_input.find(":"); // host:port
+            auto server_endpoints = server_resolver.resolve(args.server_endpoint_input.substr(0, server_split_idx), args.server_endpoint_input.substr(server_split_idx + 1), ec);
             if(ec)
                 throw InvalidArguments("Invalid server endpoint", ec);
             boost::asio::async_connect(server_socket_, server_endpoints,
@@ -312,6 +318,36 @@ namespace bomberman
             scores_t scores;
         } game_state;
     };
+
+    robots_client_args_t get_client_arguments(int ac, char *av[])
+    {
+        boost::program_options::options_description desc("Usage");
+        desc.add_options()("h", "produce help message")("-d", boost::program_options::value<std::string>(), "<(nazwa hosta):(port) lub (IPv4):(port) lub (IPv6):(port)>")("-n", boost::program_options::value<std::string>(), "player name")("-p", boost::program_options::value<uint16_t>(), "port number")("-s", boost::program_options::value<std::string>(), "<(nazwa hosta):(port) lub (IPv4):(port) lub (IPv6):(port)>");
+
+        boost::program_options::variables_map vm;
+        boost::program_options::store(boost::program_options::parse_command_line(ac, av, desc), vm);
+        boost::program_options::notify(vm);
+
+        if (vm.count("help") || !(vm.count("-d") && vm.count("-n") && vm.count("-p") && vm.count("-s")))
+        {
+            std::cout << desc;
+            exit(1);
+        }
+
+        robots_client_args_t args;
+
+        args.server_endpoint_input = vm["-s"].as<std::string>();
+        args.gui_endpoint_input = vm["-d"].as<std::string>();
+        args.player_name = vm["-n"].as<std::string>();
+        args.port = vm["-p"].as<uint16_t>();
+
+        BOOST_LOG_TRIVIAL(debug) << "Run with arguments, server_endpoint_input: " << args.server_endpoint_input
+                                << ", gui_endpoint_input: " << args.gui_endpoint_input
+                                << ", player_name: " << args.player_name
+                                << ", port: " << args.port;
+
+        return args;
+    }
 
 } // namespace bomberman
 
