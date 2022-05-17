@@ -8,9 +8,20 @@
 #include <boost/bind/bind.hpp>
 #include <boost/asio/spawn.hpp>
 
+#include <functional>
+
 namespace bomberman
 {
 
+        template <class T>
+        concept msg_handle_t = requires()
+        {
+            std::same_as<T, std::function<void(input_message_t)> > ||
+            std::same_as<T, std::function<void(client_message_t)> > ||
+            std::same_as<T, std::function<void(server_message_t)> > ||
+            std::same_as<T, std::function<void(draw_message_t)> >;
+        };
+    
     template <class S>
     requires(std::same_as<S, boost::asio::ip::tcp::socket> ||
              std::same_as<S, boost::asio::ip::udp::socket>) class NetDeserializer
@@ -57,10 +68,10 @@ namespace bomberman
         explicit TcpDeserializer(boost::asio::ip::tcp::socket &socket)
             : NetDeserializer(socket) {}
 
-        void get_server_message(auto message_handle_callback, boost::asio::yield_context yield)
+        void get_server_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
         {
             reset_state();
-            auto message_code = get_number<server_message_code_t>(yield);
+            server_message_code_t message_code = get_number<server_message_code_t>(yield);
             BOOST_LOG_TRIVIAL(debug) << "received server message code: " << static_cast<std::underlying_type<server_message_code_t>::type>(message_code);
             switch (message_code)
             {
@@ -98,7 +109,7 @@ namespace bomberman
             }
             else
             {
-                BOOST_LOG_TRIVIAL(debug) << "Error in TcpDeserializer::read_n_bytes while async_read " << ec.message();
+                BOOST_LOG_TRIVIAL(debug) << "Error in TcpDeserializer::read_n_bytes " << ec.message();
                 throw ReceiveError("Server", ec);
             }
             assert(read_count == read_n);
@@ -188,7 +199,7 @@ namespace bomberman
             throw InvalidMessage("Server");
         }
 
-        void get_hello_message(auto message_handle_callback, boost::asio::yield_context yield)
+        void get_hello_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
         {
             Hello hello;
             hello.server_name = get_string(yield);
@@ -202,14 +213,14 @@ namespace bomberman
             message_handle_callback(hello);
         }
 
-        void get_accepted_player_message(auto message_handle_callback, boost::asio::yield_context yield)
+        void get_accepted_player_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
         {
             AcceptedPlayer accepted_player;
             accepted_player.player_id = get_number<player_id_t>(yield);
             accepted_player.player = get_player(yield);
             message_handle_callback(accepted_player);
         }
-        void get_game_started_message(auto message_handle_callback, boost::asio::yield_context yield)
+        void get_game_started_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
         {
             GameStarted game_started;
             map_len_t map_len = get_number<map_len_t>(yield);
@@ -220,7 +231,7 @@ namespace bomberman
             }
             message_handle_callback(game_started);
         }
-        void get_turn_message(auto message_handle_callback, boost::asio::yield_context yield)
+        void get_turn_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
         {
             Turn turn;
             turn.turn = get_number<turn_t>(yield);
@@ -231,7 +242,7 @@ namespace bomberman
             }
             message_handle_callback(turn);
         }
-        void get_game_ended_message(auto message_handle_callback, boost::asio::yield_context yield)
+        void get_game_ended_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
         {
             GameEnded game_ended;
             map_len_t scores_map_len = get_number<map_len_t>(yield);
@@ -254,7 +265,7 @@ namespace bomberman
         explicit UdpDeserializer(boost::asio::ip::udp::socket &socket)
             : NetDeserializer(socket) {reset_state();}
 
-        void get_message(auto message_handle_callback, boost::asio::ip::udp::endpoint& gui_endpoint)
+        void get_message(msg_handle_t auto message_handle_callback, boost::asio::ip::udp::endpoint& gui_endpoint)
         {
             // if buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty())
@@ -273,7 +284,7 @@ namespace bomberman
                                           }
                                           else
                                           {
-                                              BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message while async_receive";
+                                              BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message";
                                               throw ReceiveError("GUI", ec);
                                           }
                                       });

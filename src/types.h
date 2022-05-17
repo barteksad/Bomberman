@@ -35,6 +35,7 @@ namespace bomberman
     using score_t = uint32_t;
     using map_len_t = uint32_t;
     using list_len_t = uint32_t;
+    using turn_duration_t = uint64_t;
 
     struct position_t
     {
@@ -160,9 +161,9 @@ namespace bomberman
     using event_t = std::variant<BombPlaced, BombExploded, PlayerMoved, BlockPlaced>;
     using events_t = std::list<event_t>;
 
-
-    const std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_t) + sizeof(direction_t);
-
+    // size of move message
+    static constinit std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_t) + sizeof(direction_t);
+    static constinit std::size_t MAX_SERVER_CONNECTIONS = 25;
 } // bomberman
 
 #endif // BOMBERMAN_TYPES_H
