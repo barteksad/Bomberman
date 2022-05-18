@@ -2,6 +2,7 @@
 #define BOMBERMAN_CLIENT_H
 
 #include "net.h"
+#include "common.h"
 
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
@@ -18,7 +19,7 @@
 #include <queue>
 #include <memory>
 #include <tuple>
-#include "iostream"
+#include <iostream>
 
 namespace bomberman
 {
@@ -52,7 +53,7 @@ namespace bomberman
               server_deserializer_(server_socket_),
               gui_deserializer_(gui_socket_),
               player_name_(args.player_name),
-              state(LOBBY)
+              state_(LOBBY)
         {
             boost::system::error_code ec;
 
@@ -90,9 +91,9 @@ namespace bomberman
 
         void read_from_server(boost::asio::yield_context yield)
         {
-            while(true)
+            while (true)
             {
-                const server_message_t msg =server_deserializer_.get_server_message(yield);
+                const server_message_t msg = server_deserializer_.get_server_message(yield);
                 bool handle_in_progress = !server_messages_q_.empty();
                 server_messages_q_.push(msg);
                 if (!handle_in_progress)
@@ -125,12 +126,12 @@ namespace bomberman
 
             while (!input_messages_q_.empty())
             {
-                if (state == LOBBY)
+                if (state_ == LOBBY)
                 {
                     client_messages_q_.push(Join{player_name_});
                     input_messages_q_ = std::queue<input_message_t>();
                 }
-                else if (state == IN_GAME)
+                else if (state_ == IN_GAME)
                 {
                     input_message_t input_message = input_messages_q_.front();
                     std::visit(overloaded{
@@ -144,7 +145,7 @@ namespace bomberman
                                input_message);
                     input_messages_q_.pop();
                 }
-                else if (state == OBSERVE)
+                else if (state_ == OBSERVE)
                 {
                     // do nothing
                     input_messages_q_ = std::queue<input_message_t>();
@@ -166,24 +167,24 @@ namespace bomberman
                 bool send_in_progress = !draw_messages_q_.empty();
                 std::visit(overloaded{[this](Hello &hello)
                                       {
-                                          game_state = game_state_t(hello); // reset game state
+                                          hello_ = hello;
                                       },
                                       [this](AcceptedPlayer &accepted_player)
                                       {
-                                          game_state.players.insert({accepted_player.player_id, accepted_player.player});
-                                          Lobby lobby(game_state.hello, game_state.players);
+                                          game_state_.players.insert({accepted_player.player_id, accepted_player.player});
+                                          Lobby lobby(hello_, game_state_.players);
                                           draw_messages_q_.push(lobby);
                                       },
                                       [this](GameStarted &game_started)
                                       {
-                                          game_state.players = game_started.players;
-                                          state = client_state_t::IN_GAME;
-                                          for (auto &players_map_entry : game_state.players)
-                                              game_state.scores.insert({players_map_entry.first, 0});
+                                          game_state_.players = game_started.players;
+                                          state_ = client_state_t::IN_GAME;
+                                          for (auto &players_map_entry : game_state_.players)
+                                              game_state_.scores.insert({players_map_entry.first, 0});
                                       },
                                       [this](Turn &turn)
                                       {
-                                          Game game(game_state.hello, turn.turn, game_state.players);
+                                          Game game(hello_, turn.turn, game_state_.players);
                                           std::unordered_set<player_id_t> who_to_add_score;
 
                                           for (event_t &event : turn.events)
@@ -191,60 +192,62 @@ namespace bomberman
                                               std::visit(overloaded{
                                                              [this](BombPlaced &bomb_placed)
                                                              {
-                                                                 game_state.bombs.insert({bomb_placed.bomb_id, bomb_t{.position = bomb_placed.position, .timer = game_state.hello.bomb_timer}});
+                                                                 game_state_.bombs.insert({bomb_placed.bomb_id, bomb_t{.position = bomb_placed.position, .timer = hello_.bomb_timer}});
                                                              },
                                                              [&game, &who_to_add_score, this](BombExploded &bomb_exploded)
                                                              {
-                                                                 auto exploded_bomb_it = game_state.bombs.find(bomb_exploded.bomb_id);
-                                                                 if (exploded_bomb_it == game_state.bombs.end())
+                                                                 auto exploded_bomb_it = game_state_.bombs.find(bomb_exploded.bomb_id);
+                                                                 if (exploded_bomb_it == game_state_.bombs.end())
                                                                  {
                                                                      // server is always right but we do not know anythong about this bomb
                                                                  }
                                                                  else
                                                                  {
-                                                                     game.explosions.insert(exploded_bomb_it->second.position);
-                                                                     game_state.bombs.erase(exploded_bomb_it);
+                                                                     game.explosions = calculate_explosion_range(exploded_bomb_it->second.position, hello_.explosion_radius,
+                                                                                                                 hello_.size_x, hello_.size_y,
+                                                                                                                 game_state_.blocks);
+                                                                     game_state_.bombs.erase(exploded_bomb_it);
                                                                  }
 
                                                                  for (const player_id_t &robot_destroyed : bomb_exploded.robots_destroyed)
                                                                  {
                                                                      who_to_add_score.insert(robot_destroyed);
-                                                                     game_state.player_to_position.erase(robot_destroyed);
+                                                                     game_state_.player_to_position.erase(robot_destroyed);
                                                                  }
                                                                  for (const position_t &block_destroyed : bomb_exploded.blocks_destroyed)
-                                                                     game_state.blocks.erase(block_destroyed);
+                                                                     game_state_.blocks.erase(block_destroyed);
                                                              },
                                                              [this](PlayerMoved &player_moved)
                                                              {
-                                                                 BOOST_LOG_TRIVIAL(debug) << "received MOVE player " << static_cast<uint16_t>(player_moved.player_id) << " to " <<    static_cast<uint16_t>(player_moved.position.x) << " " <<  static_cast<uint16_t>( player_moved.position.y);
-                                                                 game_state.player_to_position[player_moved.player_id] = player_moved.position;
+                                                                 BOOST_LOG_TRIVIAL(debug) << "received MOVE player " << static_cast<uint16_t>(player_moved.player_id) << " to " << static_cast<uint16_t>(player_moved.position.x) << " " << static_cast<uint16_t>(player_moved.position.y);
+                                                                 game_state_.player_to_position[player_moved.player_id] = player_moved.position;
                                                              },
                                                              [this](BlockPlaced &block_placed)
                                                              {
-                                                                 game_state.blocks.insert(block_placed.position);
+                                                                 game_state_.blocks.insert(block_placed.position);
                                                              },
                                                          },
                                                          event);
                                           }
                                           for (auto &player : who_to_add_score)
                                           {
-                                              game_state.scores[player]++;
+                                              game_state_.scores[player]++;
                                           }
-                                          for (auto &bomb_pair : game_state.bombs)
+                                          for (auto &bomb_pair : game_state_.bombs)
                                           {
                                               if (bomb_pair.second.timer > 0)
                                                   bomb_pair.second.timer--;
                                           }
-                                          game.players_positions = game_state.player_to_position;
-                                          game.blocks = game_state.blocks;
-                                          game.bombs = game_state.bombs;
-                                          game.scores = game_state.scores;
+                                          game.players_positions = game_state_.player_to_position;
+                                          game.blocks = game_state_.blocks;
+                                          game.bombs = game_state_.bombs;
+                                          game.scores = game_state_.scores;
                                           draw_messages_q_.push(game);
                                       },
-                                      [this](GameEnded &game_ended)
+                                      [this](GameEnded &)
                                       {
-                                          game_state.reset();
-                                          state = client_state_t::LOBBY;
+                                          game_state_.reset();
+                                          state_ = client_state_t::LOBBY;
                                       }},
                            server_messages_q_.front());
 
@@ -264,19 +267,20 @@ namespace bomberman
             NetSerializer net_serializer;
             buffer_t buffer = net_serializer.serialize(client_messages_q_.front());
             // BOOST_LOG_TRIVIAL(debug) << "start sending to server " << buffer.size() << " bytes";
-            boost::asio::async_write(server_socket_, boost::asio::buffer(buffer, buffer.size()), [this](boost::system::error_code ec, std::size_t)
+            boost::asio::async_write(server_socket_, boost::asio::buffer(buffer, buffer.size()),
+                                     [this](boost::system::error_code ec, std::size_t)
                                      {
-                if(!ec)
-                {
-
-                client_messages_q_.pop();
-                if(!client_messages_q_.empty())
-                    send_to_server();
-                }
-                else
-                {
-                    throw SendError("Server", ec);
-                } });
+                                         if (!ec)
+                                         {
+                                             client_messages_q_.pop();
+                                             if (!client_messages_q_.empty())
+                                                 send_to_server();
+                                         }
+                                         else
+                                         {
+                                             throw SendError("Server", ec);
+                                         }
+                                     });
         }
 
         void send_to_gui()
@@ -311,33 +315,14 @@ namespace bomberman
             LOBBY,
             IN_GAME,
             OBSERVE
-        } state;
+        } state_;
         boost::asio::ip::udp::endpoint gui_endpoint;
         std::queue<input_message_t> input_messages_q_;
         std::queue<client_message_t> client_messages_q_;
         std::queue<server_message_t> server_messages_q_;
         std::queue<draw_message_t> draw_messages_q_;
-        struct game_state_t
-        {
-            game_state_t() {}
-            game_state_t(const Hello &_hello)
-                : hello(_hello) {}
-            Hello hello;
-            players_t players;
-            blocks_t blocks;
-            bombs_t bombs;
-            player_to_position_t player_to_position;
-            scores_t scores;
-
-            void reset()
-            {
-                players.clear();
-                blocks.clear();
-                bombs.clear();
-                player_to_position.clear();
-                scores.clear();
-            }
-        } game_state;
+        Hello hello_;
+        game_state_t game_state_;
     };
 
     robots_client_args_t get_client_arguments(int ac, char *av[])
