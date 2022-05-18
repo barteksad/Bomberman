@@ -39,6 +39,9 @@ namespace bomberman
         public:
             explicit InvalidArguments(std::string && description, boost::system::error_code ec)
                 : std::invalid_argument(description + ", boost error message: " + ec.message()) {}
+            
+            explicit InvalidArguments(std::string && description)
+                : std::invalid_argument(description) {}
     };
 
 } // namespace bomberman

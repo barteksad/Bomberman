@@ -5,7 +5,6 @@
 #include "errors.h"
 
 #include <boost/asio.hpp>
-#include <boost/bind/bind.hpp>
 #include <boost/asio/spawn.hpp>
 
 #include <functional>

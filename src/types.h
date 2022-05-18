@@ -3,17 +3,11 @@
 
 #include <boost/asio.hpp>
 
-#include <boost/log/core.hpp>
-#include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
-
+#include <list>
 #include <unordered_map>
 #include <unordered_set>
-#include <set>
-#include <vector>
-#include <exception>
 #include <variant>
-#include <list>
+#include <vector>
 
 namespace bomberman
 {
@@ -41,7 +35,7 @@ namespace bomberman
     {
         uint16_t x, y;
 
-        bool operator==(const position_t& other) const noexcept
+        bool operator==(const position_t &other) const noexcept
         {
             return (x == other.x) & (y == other.y);
         }
@@ -49,18 +43,17 @@ namespace bomberman
         {
             std::size_t operator()(const position_t &position) const noexcept
             {
-                return std::hash<uint16_t>{}(position.x) ^ std::hash<uint16_t>{}(position.y); 
+                return std::hash<uint16_t>{}(position.x) ^ std::hash<uint16_t>{}(position.y);
             }
         };
     };
-
 
     struct player_t
     {
         std::string name, address;
     };
 
-    struct bomb_t 
+    struct bomb_t
     {
         position_t position;
         bomb_timer_t timer;
@@ -86,8 +79,8 @@ namespace bomberman
         Hello = 0,
         AcceptedPlayer = 1,
         GameStarted = 2,
-        Turn=3,
-        GameEnded=4
+        Turn = 3,
+        GameEnded = 4
     };
 
     enum class client_message_code_t : message_code_t
@@ -95,7 +88,7 @@ namespace bomberman
         Join = 0,
         PlaceBomb = 1,
         PlaceBlock = 2,
-        Move=3
+        Move = 3
     };
 
     enum class draw_message_code_t : message_code_t
@@ -106,10 +99,10 @@ namespace bomberman
 
     enum class event_code_t : message_code_t
     {
-        BombPlaced=0,
-        BombExploded=1, 
-        PlayerMoved=2, 
-        BlockPlaced=3
+        BombPlaced = 0,
+        BombExploded = 1,
+        PlayerMoved = 2,
+        BlockPlaced = 3
     };
 
     using players_t = std::unordered_map<player_id_t, player_t>;

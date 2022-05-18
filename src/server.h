@@ -16,6 +16,7 @@
 #include <string>
 #include <iostream>
 #include <unordered_map>
+#include <variant>
 
 namespace bomberman
 {
@@ -37,8 +38,25 @@ namespace bomberman
     
     namespace
     {
-        struct 
-        // using tergeted_message = 
+        struct target_one_t
+        {
+            player_id_t to_who;
+            server_message_t message;
+        };
+
+        struct target_all
+        {
+            server_message_t message;
+        };
+
+        struct received_message_t
+        {
+            player_id_t from_who;
+            client_message_t message;
+        };
+ 
+        using targeted_message_t = std::variant<target_one_t, target_all>;
+
     } // namespace
 
     class RobotsServer
@@ -62,6 +80,9 @@ namespace bomberman
             }
 
             void send_message()
+            {
+                
+            }
 
             void add_message(client_message_t client_message)
             {

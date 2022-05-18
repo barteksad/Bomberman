@@ -4,17 +4,11 @@
 #include "types.h"
 
 #include <boost/asio.hpp>
-
-#include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
 
-#include <boost/bind/bind.hpp>
-#include <boost/asio/spawn.hpp>
-
+#include <functional>
 #include <queue>
 #include <variant>
-#include <functional>
 
 namespace
 {
