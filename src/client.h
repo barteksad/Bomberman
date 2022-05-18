@@ -163,7 +163,7 @@ namespace bomberman
 
         void handle_server_message()
         {
-            BOOST_LOG_TRIVIAL(debug) << "in handle server message!";
+            // BOOST_LOG_TRIVIAL(debug) << "in handle server message!";
             while (!server_messages_q_.empty())
             {
                 bool send_in_progress = !draw_messages_q_.empty();
@@ -219,7 +219,8 @@ namespace bomberman
                                                              },
                                                              [this](PlayerMoved &player_moved)
                                                              {
-                                                                 game_state.player_to_position.insert({player_moved.player_id, player_moved.position});
+                                                                 BOOST_LOG_TRIVIAL(debug) << "received MOVE player " << static_cast<uint16_t>(player_moved.player_id) << " to " <<    static_cast<uint16_t>(player_moved.position.x) << " " <<  static_cast<uint16_t>( player_moved.position.y);
+                                                                 game_state.player_to_position[player_moved.player_id] = player_moved.position;
                                                              },
                                                              [this](BlockPlaced &block_placed)
                                                              {
@@ -245,7 +246,7 @@ namespace bomberman
                                       },
                                       [this](GameEnded &game_ended)
                                       {
-                                          game_state.scores = game_ended.scores;
+                                          game_state.reset();
                                           state = client_state_t::LOBBY;
                                       }},
                            server_messages_q_.front());
@@ -255,6 +256,7 @@ namespace bomberman
                     send_to_gui();
                 }
 
+                BOOST_LOG_TRIVIAL(debug) << "server messages queue size: " << server_messages_q_.size();
                 server_messages_q_.pop();
             }
         }
@@ -264,7 +266,7 @@ namespace bomberman
             assert(!client_messages_q_.empty());
             NetSerializer net_serializer;
             buffer_t buffer = net_serializer.serialize(client_messages_q_.front());
-            BOOST_LOG_TRIVIAL(debug) << "start sending to server " << buffer.size() << " bytes";
+            // BOOST_LOG_TRIVIAL(debug) << "start sending to server " << buffer.size() << " bytes";
             boost::asio::async_write(server_socket_, boost::asio::buffer(buffer, buffer.size()), [this](boost::system::error_code ec, std::size_t)
                                      {
                 if(!ec)
@@ -299,7 +301,6 @@ namespace bomberman
             server_socket_.close();
             gui_socket_.close();
         }
-
         // TODO!
         // private:
         boost::asio::io_context &io_context_;
@@ -322,7 +323,7 @@ namespace bomberman
         struct game_state_t
         {
             game_state_t() {}
-            game_state_t(Hello &_hello)
+            game_state_t(const Hello &_hello)
                 : hello(_hello) {}
             Hello hello;
             players_t players;
@@ -330,6 +331,15 @@ namespace bomberman
             bombs_t bombs;
             player_to_position_t player_to_position;
             scores_t scores;
+
+            void reset()
+            {
+                players.clear();
+                blocks.clear();
+                bombs.clear();
+                player_to_position.clear();
+                scores.clear();
+            }
         } game_state;
     };
 

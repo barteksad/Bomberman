@@ -72,7 +72,7 @@ namespace bomberman
         {
             reset_state();
             server_message_code_t message_code = get_number<server_message_code_t>(yield);
-            BOOST_LOG_TRIVIAL(debug) << "received server message code: " << static_cast<std::underlying_type<server_message_code_t>::type>(message_code);
+            BOOST_LOG_TRIVIAL(debug) << "received server message code: " << static_cast<uint16_t>(message_code);
             switch (message_code)
             {
             case server_message_code_t::Hello:
@@ -101,18 +101,17 @@ namespace bomberman
         {
             buffer.resize(buffer.size() + read_n);
             boost::system::error_code ec;
-            BOOST_LOG_TRIVIAL(debug) << "server start waiting for " << read_n << " bytes";
+            // BOOST_LOG_TRIVIAL(debug) << "server start waiting for " << read_n << " bytes";
             std::size_t read_count = boost::asio::async_read(socket_, boost::asio::buffer(buffer.data() + write_idx, read_n), yield[ec]);
-            if (!ec)
+            if (!ec || read_count != read_n)
             {
-                BOOST_LOG_TRIVIAL(debug) << "Received " << read_n << " bytes from server";
+                // BOOST_LOG_TRIVIAL(debug) << "Received " << read_n << " bytes from server";
             }
             else
             {
                 BOOST_LOG_TRIVIAL(debug) << "Error in TcpDeserializer::read_n_bytes " << ec.message();
                 throw ReceiveError("Server", ec);
             }
-            assert(read_count == read_n);
             write_idx += read_n;
         }
 
@@ -127,7 +126,7 @@ namespace bomberman
         std::string get_string(boost::asio::yield_context yield)
         {
             str_len_t str_len = get_number<str_len_t>(yield);
-            read_n_bytes((std::size_t)str_len, yield);
+            read_n_bytes(static_cast<std::size_t>(str_len), yield);
             std::string result;
             while (read_idx < write_idx)
                 result.push_back(buffer[read_idx++]);
@@ -279,7 +278,7 @@ namespace bomberman
                                           if (!ec)
                                           {
                                               this->write_idx += read_length;
-                                              BOOST_LOG_TRIVIAL(debug) << "received " << read_length << " bytes from gui";
+                                            //   BOOST_LOG_TRIVIAL(debug) << "received " << read_length << " bytes from gui";
                                               get_message(message_handle_callback, gui_endpoint);
                                           }
                                           else
@@ -293,7 +292,7 @@ namespace bomberman
 
             input_message_t input_message;
             auto message_code = decode_number<input_message_code_t>();
-            BOOST_LOG_TRIVIAL(debug) << "GUI message code: " << static_cast<std::underlying_type<input_message_code_t>::type>(message_code);
+            BOOST_LOG_TRIVIAL(debug) << "GUI message code: " << static_cast<uint16_t>(message_code);
             if(message_code < input_message_code_t::PlaceBomb || message_code > input_message_code_t::Move)
                 throw InvalidMessage("GUI");
             switch (message_code)
@@ -486,9 +485,11 @@ namespace bomberman
                               write_player(players_map_entry.second);
                           });
             write_number<map_len_t>((map_len_t)game.players_positions.size());
+            BOOST_LOG_TRIVIAL(debug)  << "Sending players positions, map size: " << game.players_positions.size();
             std::for_each(game.players_positions.begin(), game.players_positions.end(),
                           [this](auto &players_positions_map_entry)
                           {
+                              BOOST_LOG_TRIVIAL(debug) << "player : " << static_cast<uint16_t>(players_positions_map_entry.first) << " position " << players_positions_map_entry.second.x << "," << players_positions_map_entry.second.y;
                               write_number<player_id_t>(players_positions_map_entry.first);
                               write_position(players_positions_map_entry.second);
                           });
