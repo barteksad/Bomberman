@@ -22,7 +22,7 @@ namespace bomberman
 
     using server_name = std::string;
     using str_len_t = uint8_t;
-    using message_t = uint8_t;
+    using message_code_t = uint8_t;
     using players_count_t = uint8_t;
     using player_id_t = uint8_t;
     using size_x_t = uint16_t;
@@ -74,14 +74,14 @@ namespace bomberman
         Left = 3
     };
 
-    enum class input_message_code_t : message_t
+    enum class input_message_code_t : message_code_t
     {
         PlaceBomb = 0,
         PlaceBlock = 1,
         Move = 2
     };
 
-    enum class server_message_code_t : message_t
+    enum class server_message_code_t : message_code_t
     {
         Hello = 0,
         AcceptedPlayer = 1,
@@ -90,7 +90,7 @@ namespace bomberman
         GameEnded=4
     };
 
-    enum class client_message_code_t : message_t
+    enum class client_message_code_t : message_code_t
     {
         Join = 0,
         PlaceBomb = 1,
@@ -98,13 +98,13 @@ namespace bomberman
         Move=3
     };
 
-    enum class draw_message_code_t : message_t
+    enum class draw_message_code_t : message_code_t
     {
         Lobby = 0,
         Game = 1,
     };
 
-    enum class event_code_t : message_t
+    enum class event_code_t : message_code_t
     {
         BombPlaced=0,
         BombExploded=1, 
@@ -162,7 +162,7 @@ namespace bomberman
     using events_t = std::list<event_t>;
 
     // size of move message
-    static constinit std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_t) + sizeof(direction_t);
+    static constinit std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_code_t) + sizeof(direction_t);
     static constinit std::size_t MAX_SERVER_CONNECTIONS = 25;
 } // bomberman
 

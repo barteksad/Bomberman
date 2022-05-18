@@ -14,12 +14,12 @@ namespace bomberman
 {
 
         template <class T>
-        concept msg_handle_t = requires()
+        concept messaget_t = requires()
         {
-            std::same_as<T, std::function<void(input_message_t)> > ||
-            std::same_as<T, std::function<void(client_message_t)> > ||
-            std::same_as<T, std::function<void(server_message_t)> > ||
-            std::same_as<T, std::function<void(draw_message_t)> >;
+            std::same_as<T, input_message_t > ||
+            std::same_as<T, client_message_t > ||
+            std::same_as<T, server_message_t > ||
+            std::same_as<T, draw_message_t >;
         };
     
     template <class S>
@@ -68,7 +68,7 @@ namespace bomberman
         explicit TcpDeserializer(boost::asio::ip::tcp::socket &socket)
             : NetDeserializer(socket) {}
 
-        void get_server_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
+        messaget_t auto get_server_message(boost::asio::yield_context yield)
         {
             reset_state();
             server_message_code_t message_code = get_number<server_message_code_t>(yield);
@@ -76,20 +76,15 @@ namespace bomberman
             switch (message_code)
             {
             case server_message_code_t::Hello:
-                get_hello_message(message_handle_callback, yield);
-                return;
+                return get_hello_message(yield);
             case server_message_code_t::AcceptedPlayer:
-                get_accepted_player_message(message_handle_callback, yield);
-                return;
+                return get_accepted_player_message(yield);
             case server_message_code_t::GameStarted:
-                get_game_started_message(message_handle_callback, yield);
-                return;
+                return get_game_started_message(yield);
             case server_message_code_t::Turn:
-                get_turn_message(message_handle_callback, yield);
-                return;
+                return get_turn_message(yield);
             case server_message_code_t::GameEnded:
-                get_game_ended_message(message_handle_callback, yield);
-                return;
+                return get_game_ended_message(yield);
             default:
                 BOOST_LOG_TRIVIAL(fatal) << "Invalid server message code!";
                 throw InvalidMessage("Server");
@@ -198,7 +193,7 @@ namespace bomberman
             throw InvalidMessage("Server");
         }
 
-        void get_hello_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
+        server_message_t get_hello_message(boost::asio::yield_context yield)
         {
             Hello hello;
             hello.server_name = get_string(yield);
@@ -209,17 +204,17 @@ namespace bomberman
             hello.explosion_radius = get_number<explosion_radius_t>(yield);
             hello.bomb_timer = get_number<bomb_timer_t>(yield);
 
-            message_handle_callback(hello);
+            return hello;
         }
 
-        void get_accepted_player_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
+        server_message_t get_accepted_player_message(boost::asio::yield_context yield)
         {
             AcceptedPlayer accepted_player;
             accepted_player.player_id = get_number<player_id_t>(yield);
             accepted_player.player = get_player(yield);
-            message_handle_callback(accepted_player);
+            return accepted_player;
         }
-        void get_game_started_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
+        server_message_t get_game_started_message(boost::asio::yield_context yield)
         {
             GameStarted game_started;
             map_len_t map_len = get_number<map_len_t>(yield);
@@ -228,9 +223,9 @@ namespace bomberman
                 game_started.players.insert({get_number<player_id_t>(yield),
                                              get_player(yield)});
             }
-            message_handle_callback(game_started);
+            return game_started;
         }
-        void get_turn_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
+        server_message_t get_turn_message(boost::asio::yield_context yield)
         {
             Turn turn;
             turn.turn = get_number<turn_t>(yield);
@@ -239,9 +234,9 @@ namespace bomberman
             {
                 turn.events.push_back(get_event(yield));
             }
-            message_handle_callback(turn);
+            return turn;
         }
-        void get_game_ended_message(msg_handle_t auto message_handle_callback, boost::asio::yield_context yield)
+        server_message_t get_game_ended_message(boost::asio::yield_context yield)
         {
             GameEnded game_ended;
             map_len_t scores_map_len = get_number<map_len_t>(yield);
@@ -253,7 +248,7 @@ namespace bomberman
                     get_number<score_t>(yield),
                 });
             }
-            message_handle_callback(game_ended);
+            return game_ended;
         }
     };
 
@@ -264,7 +259,7 @@ namespace bomberman
         explicit UdpDeserializer(boost::asio::ip::udp::socket &socket)
             : NetDeserializer(socket) {reset_state();}
 
-        void get_message(msg_handle_t auto message_handle_callback, boost::asio::ip::udp::endpoint& gui_endpoint)
+        void get_message(std::function<void(input_message_t)> message_handle_callback, boost::asio::ip::udp::endpoint& gui_endpoint)
         {
             // if buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty())

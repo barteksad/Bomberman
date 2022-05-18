@@ -90,19 +90,16 @@ namespace bomberman
 
         void read_from_server(boost::asio::yield_context yield)
         {
-            auto message_handle_callback = [this, yield](const server_message_t msg)
+            while(true)
             {
+                const server_message_t msg =server_deserializer_.get_server_message(yield);
                 bool handle_in_progress = !server_messages_q_.empty();
                 server_messages_q_.push(msg);
                 if (!handle_in_progress)
                 {
                     handle_server_message();
                 }
-
-                read_from_server(yield);
-            };
-
-            server_deserializer_.get_server_message(message_handle_callback, yield);
+            }
         }
 
         void read_from_gui()
