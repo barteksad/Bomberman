@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "messages.h"
+#include "common.h"
 
 #include <boost/asio.hpp>
 
@@ -36,38 +37,31 @@ namespace bomberman
     
     namespace
     {
-
-        struct ServerGameState
-        {   
-            players_t players;
-            blocks_t blocks;
-            bombs_t bombs;
-            player_to_position_t player_to_position;
-            scores_t scores;
-        };
-
-        enum server_state_t
-        {
-            LOBBY,
-            GAME,
-        };
-
+        struct 
+        // using tergeted_message = 
     } // namespace
 
     class RobotsServer
     {
         public:
 
-            RobotsServer(robots_server_args_t &_args, boost::asio::io_context &_io_context)
-                : args(_args), io_context(_io_context), turn_timer(_io_context)
+            RobotsServer(robots_server_args_t &args, boost::asio::io_context &io_context)
+                : args_(args), io_context_(io_context), turn_timer_(io_context)
                 {
-                    server_state = LOBBY;
+                    server_state_ = LOBBY;
                 }
         
             void connect_loop()
             {
 
             }
+
+            void read_message_from_client()
+            {
+
+            }
+
+            void send_message()
 
             void add_message(client_message_t client_message)
             {
@@ -80,12 +74,16 @@ namespace bomberman
             }
 
         private:
-            const robots_server_args_t args;
-            const boost::asio::io_context &io_context;
-            ServerGameState game_state;
-            server_state_t server_state;
-            boost::asio::deadline_timer turn_timer;
-            std::unordered_map<player_id_t, client_message_t> clients_messages;
+            const robots_server_args_t args_;
+            const boost::asio::io_context &io_context_;
+            game_state_t game_state_;
+            enum server_state_t
+            {
+                LOBBY,
+                GAME,
+            }state_;
+            boost::asio::deadline_timer turn_timer_;
+            std::unordered_map<player_id_t, client_message_t> clients_messages_;
     };
 
     robots_server_args_t get_server_arguments(int ac, char *av[])
