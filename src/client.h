@@ -20,7 +20,7 @@ namespace bomberman
     // This function is used to split host:port input string by ':'.
     std::tuple<std::string, std::string> split_by_colon(std::string &s)
     {
-      auto split_idx = s.find(":");
+      auto split_idx = s.find_last_of(":");
       std::string s1 = s.substr(0, split_idx);
       std::string s2 = s.substr(split_idx + 1);
       return {s1, s2};
@@ -73,6 +73,7 @@ namespace bomberman
                  const boost::asio::ip::tcp::endpoint &) {
             if (!ec)
             {
+              // Turn off Nagle's algorithm
               boost::asio::ip::tcp::no_delay option(true);
               server_socket_.set_option(option);
               boost::asio::spawn(io_context_,
@@ -100,6 +101,7 @@ namespace bomberman
         const server_message_t msg =
             server_deserializer_.get_server_message(yield);
         server_messages_q_.push(msg);
+        BOOST_LOG_TRIVIAL(debug) << "received message from server";
         handle_server_message();
       }
     }
@@ -132,6 +134,7 @@ namespace bomberman
         if (state_ == LOBBY)
         {
           client_messages_q_.push(Join{player_name_});
+          BOOST_LOG_TRIVIAL(debug) << "sending Join to server";
           // Clear qui messages queue because we are not in game yet.
           input_messages_q_ = std::queue<input_message_t>();
         }
@@ -164,6 +167,13 @@ namespace bomberman
     }
 
     // --- SERVER MESSAGES PROCESSING ---
+    void process_hello(const Hello& hello)
+    {
+        hello_ = hello;
+        Lobby lobby(hello_, game_state_.players);
+        draw_messages_q_.push(lobby);
+    }
+
     void process_accepted_player(const AcceptedPlayer &accepted_player)
     {
       // Register new player and send message to GUI.
@@ -180,6 +190,9 @@ namespace bomberman
       state_ = client_state_t::IN_GAME;
       for (auto &players_map_entry : game_state_.players)
         game_state_.scores.insert({players_map_entry.first, 0});
+      Game game(hello_, 0, game_state_.players);
+      game.scores = game_state_.scores;
+      draw_messages_q_.push(game);
     }
 
     void process_bomb_placed(const BombPlaced &bomb_placed)
@@ -270,10 +283,13 @@ namespace bomberman
       draw_messages_q_.push(game);
     }
 
-    void process_game_ended(const GameEnded &)
+    void process_game_ended(const GameEnded & game_ended)
     {
+      assert(game_ended.scores == game_state_.scores);
       game_state_.reset();
       state_ = client_state_t::LOBBY;
+      Lobby lobby(hello_, game_state_.players);
+        draw_messages_q_.push(lobby);
     }
     // --- END OF SERVER MESSAGES PROCESSING ---
 
@@ -288,7 +304,7 @@ namespace bomberman
         bool send_in_progress = !draw_messages_q_.empty();
         std::visit(
             overloaded{
-                [this](Hello &hello) { hello_ = hello; },
+                std::bind(&RobotsClient::process_hello, this, std::placeholders::_1),
                 std::bind(&RobotsClient::process_accepted_player, this, std::placeholders::_1),
                 std::bind(&RobotsClient::process_game_started, this, std::placeholders::_1),
                 std::bind(&RobotsClient::process_turn, this, std::placeholders::_1),
@@ -348,7 +364,7 @@ namespace bomberman
       gui_socket_.close();
     }
 
-    private:
+  private:
     boost::asio::io_context &io_context_;
     boost::asio::ip::tcp::socket server_socket_;
     boost::asio::ip::udp::socket gui_socket_;
@@ -400,7 +416,7 @@ namespace bomberman
     args.player_name = vm["-n"].as<std::string>();
     args.port = vm["-p"].as<uint16_t>();
 
-    if(args.player_name.length() > 255)
+    if (args.player_name.length() > 255)
       throw InvalidArguments("player name must be shorter than 255 characters");
 
     BOOST_LOG_TRIVIAL(debug) << "Run with arguments, server_endpoint_input: "

@@ -1,26 +1,27 @@
 #ifndef BOMBERMAN_NET_H
 #define BOMBERMAN_NET_H
 
-#include "messages.h"
 #include "errors.h"
+#include "messages.h"
 
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
 
 #include <functional>
+#include <optional>
 
 namespace bomberman
 {
 
-        template <class T>
-        concept messaget_t = requires()
-        {
-            std::same_as<T, input_message_t > ||
-            std::same_as<T, client_message_t > ||
-            std::same_as<T, server_message_t > ||
-            std::same_as<T, draw_message_t >;
-        };
-    
+    template <class T>
+    concept message_t = requires()
+    {
+        std::same_as<T, input_message_t> ||
+            std::same_as<T, client_message_t> ||
+            std::same_as<T, server_message_t> ||
+            std::same_as<T, draw_message_t>;
+    };
+
     template <class S>
     requires(std::same_as<S, boost::asio::ip::tcp::socket> ||
              std::same_as<S, boost::asio::ip::udp::socket>) class NetDeserializer
@@ -37,9 +38,9 @@ namespace bomberman
             if constexpr (sizeof(T) == 1)
                 result = std::bit_cast<T>((uint8_t) * (buffer.data() + read_idx));
             else if constexpr (sizeof(T) == 2)
-                result = std::bit_cast<T>(ntohs(* std::bit_cast<uint16_t*>(buffer.data() + read_idx)));
+                result = std::bit_cast<T>(ntohs(*std::bit_cast<uint16_t *>(buffer.data() + read_idx)));
             else if constexpr (sizeof(T) == 4)
-                result = std::bit_cast<T>(ntohl(* std::bit_cast<uint32_t*>(buffer.data() + read_idx)));
+                result = std::bit_cast<T>(ntohl(*std::bit_cast<uint32_t *>(buffer.data() + read_idx)));
             else
                 assert(false);
 
@@ -67,7 +68,7 @@ namespace bomberman
         explicit TcpDeserializer(boost::asio::ip::tcp::socket &socket)
             : NetDeserializer(socket) {}
 
-        messaget_t auto get_server_message(boost::asio::yield_context yield)
+        message_t auto get_server_message(boost::asio::yield_context yield)
         {
             reset_state();
             server_message_code_t message_code = get_number<server_message_code_t>(yield);
@@ -90,18 +91,34 @@ namespace bomberman
             }
         }
 
+        message_t auto get_client_message(boost::asio::yield_context yield)
+        {
+            reset_state();
+            client_message_code_t message_code = get_number<client_message_code_t>(yield);
+            BOOST_LOG_TRIVIAL(debug) << "received client message code: " << static_cast<uint16_t>(message_code);
+            switch (message_code)
+            {
+            case client_message_code_t::Join:
+                return get_join(yield);
+            case client_message_code_t::PlaceBomb:
+                return get_place_bomb();
+            case client_message_code_t::PlaceBlock:
+                return get_place_block();
+            case client_message_code_t::Move:
+                return get_move(yield);
+            default:
+                BOOST_LOG_TRIVIAL(fatal) << "Invalid client message code!";
+                throw InvalidMessage("Client");
+            }
+        }
+
     private:
         void read_n_bytes(std::size_t read_n, boost::asio::yield_context yield)
         {
             buffer.resize(buffer.size() + read_n);
             boost::system::error_code ec;
-            // BOOST_LOG_TRIVIAL(debug) << "server start waiting for " << read_n << " bytes";
             std::size_t read_count = boost::asio::async_read(socket_, boost::asio::buffer(buffer.data() + write_idx, read_n), yield[ec]);
-            if (!ec || read_count != read_n)
-            {
-                // BOOST_LOG_TRIVIAL(debug) << "Received " << read_n << " bytes from server";
-            }
-            else
+            if (ec || read_count != read_n)
             {
                 BOOST_LOG_TRIVIAL(debug) << "Error in TcpDeserializer::read_n_bytes " << ec.message();
                 throw ReceiveError("Server", ec);
@@ -249,16 +266,41 @@ namespace bomberman
             }
             return game_ended;
         }
-    };
 
+        client_message_t get_join(boost::asio::yield_context yield)
+        {
+            Join join;
+            join.name = get_string(yield);
+            return join;
+        }
+
+        client_message_t get_place_bomb()
+        {
+            PlaceBomb place_bomb;
+            return place_bomb;
+        }
+
+        client_message_t get_place_block()
+        {
+            PlaceBlock place_block;
+            return place_block;
+        }
+
+        client_message_t get_move(boost::asio::yield_context yield)
+        {
+            Move move;
+            move.direction = get_number<direction_t>(yield);
+            return move;
+        }
+    };
 
     class UdpDeserializer : public NetDeserializer<boost::asio::ip::udp::socket>
     {
     public:
         explicit UdpDeserializer(boost::asio::ip::udp::socket &socket)
-            : NetDeserializer(socket) {reset_state();}
+            : NetDeserializer(socket) { reset_state(); }
 
-        void get_message(std::function<void(input_message_t)> message_handle_callback, boost::asio::ip::udp::endpoint& gui_endpoint)
+        void get_message(std::function<void(input_message_t)> message_handle_callback, boost::asio::ip::udp::endpoint &gui_endpoint)
         {
             // if buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty())
@@ -266,36 +308,39 @@ namespace bomberman
                 buffer.resize(MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1);
                 // receive up to maximum message length + 1 to check if upd datagram is not too long
                 socket_.async_receive_from(boost::asio::buffer(buffer.data(), MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1),
-                                        gui_endpoint, 
-                                      [message_handle_callback, &gui_endpoint, this](boost::system::error_code ec, std::size_t read_length)
-                                      {
-                                          if (!ec)
-                                          {
-                                              this->write_idx += read_length;
-                                            //   BOOST_LOG_TRIVIAL(debug) << "received " << read_length << " bytes from gui";
-                                              get_message(message_handle_callback, gui_endpoint);
-                                          }
-                                          else
-                                          {
-                                              BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message";
-                                              throw ReceiveError("GUI", ec);
-                                          }
-                                      });
+                                           gui_endpoint,
+                                           [message_handle_callback, &gui_endpoint, this](boost::system::error_code ec, std::size_t read_length) {
+                                               if (!ec)
+                                               {
+                                                   this->write_idx += read_length;
+                                                   //   BOOST_LOG_TRIVIAL(debug) << "received " << read_length << " bytes from gui";
+                                                   get_message(message_handle_callback, gui_endpoint);
+                                               }
+                                               else
+                                               {
+                                                   BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message";
+                                                   throw ReceiveError("GUI", ec);
+                                               }
+                                           });
                 return;
             }
 
-            input_message_t input_message;
+            std::optional<input_message_t> input_message;
             auto message_code = decode_number<input_message_code_t>();
             BOOST_LOG_TRIVIAL(debug) << "GUI message code: " << static_cast<uint16_t>(message_code);
-            if(message_code < input_message_code_t::PlaceBomb || message_code > input_message_code_t::Move)
-                throw InvalidMessage("GUI");
+            // if (message_code < input_message_code_t::PlaceBomb || message_code > input_message_code_t::Move)
+            // {
+            //     BOOST_LOG_TRIVIAL(debug) << "Received invalid message code from GUI";
+            //     reset_state();
+            //     return get_message(message_handle_callback, gui_endpoint);
+            // }
             switch (message_code)
             {
             case input_message_code_t::PlaceBomb:
                 if (write_idx != 1)
                 {
                     BOOST_LOG_TRIVIAL(debug) << "invalid message length for input_message_code_t::PlaceBomb, write_idx =" << write_idx;
-                    throw InvalidMessage("GUI");
+                    break;
                 }
                 input_message = PlaceBomb{};
                 break;
@@ -303,7 +348,7 @@ namespace bomberman
                 if (write_idx != 1)
                 {
                     BOOST_LOG_TRIVIAL(debug) << "invalid message length for input_message_code_t::PlaceBlock, write_idx =" << write_idx;
-                    throw InvalidMessage("GUI");
+                    break;
                 }
                 input_message = PlaceBlock{};
                 break;
@@ -312,7 +357,7 @@ namespace bomberman
                 if (write_idx != 2 || direction > direction_t::Left)
                 {
                     BOOST_LOG_TRIVIAL(debug) << "invalid message for input_message_code_t::Move, write_idx =" << write_idx << ", direction = " << static_cast<std::underlying_type<direction_t>::type>(direction);
-                    throw InvalidMessage("GUI");
+                    break;
                 }
                 input_message = Move{direction};
                 break;
@@ -320,7 +365,13 @@ namespace bomberman
 
             reset_state();
 
-            message_handle_callback(input_message);
+            if(input_message.has_value())
+                return message_handle_callback(input_message.value());
+            else
+            {
+                BOOST_LOG_TRIVIAL(debug) << "Received invalid message code from GUI";
+                return get_message(message_handle_callback, gui_endpoint);
+            }
         }
     };
 
@@ -346,12 +397,12 @@ namespace bomberman
         {
             reset_state();
             std::visit(overloaded{
-                std::bind(&NetSerializer::write_hello, this, std::placeholders::_1),
-                std::bind(&NetSerializer::write_accepted_player, this, std::placeholders::_1),
-                std::bind(&NetSerializer::write_game_started, this, std::placeholders::_1),
-                std::bind(&NetSerializer::write_turn, this, std::placeholders::_1),
-                std::bind(&NetSerializer::write_game_ended, this, std::placeholders::_1)
-            }, server_message);
+                           std::bind(&NetSerializer::write_hello, this, std::placeholders::_1),
+                           std::bind(&NetSerializer::write_accepted_player, this, std::placeholders::_1),
+                           std::bind(&NetSerializer::write_game_started, this, std::placeholders::_1),
+                           std::bind(&NetSerializer::write_turn, this, std::placeholders::_1),
+                           std::bind(&NetSerializer::write_game_ended, this, std::placeholders::_1)},
+                       server_message);
 
             return buffer;
         }
@@ -456,8 +507,7 @@ namespace bomberman
             write_number<bomb_timer_t>(lobby.bomb_timer);
             write_number<map_len_t>((map_len_t)lobby.players.size());
             std::for_each(lobby.players.begin(), lobby.players.end(),
-                          [this](auto &players_map_entry)
-                          {
+                          [this](auto &players_map_entry) {
                               write_number<player_id_t>(players_map_entry.first);
                               write_player(players_map_entry.second);
                           });
@@ -473,36 +523,35 @@ namespace bomberman
             write_number<turn_t>(game.turn);
             write_number<map_len_t>((map_len_t)game.players.size());
             std::for_each(game.players.begin(), game.players.end(),
-                          [this](auto &players_map_entry)
-                          {
+                          [this](auto &players_map_entry) {
                               write_number<player_id_t>(players_map_entry.first);
                               write_player(players_map_entry.second);
                           });
             write_number<map_len_t>((map_len_t)game.players_positions.size());
-            BOOST_LOG_TRIVIAL(debug)  << "Sending players positions, map size: " << game.players_positions.size();
+            BOOST_LOG_TRIVIAL(debug) << "Sending players positions, map size: " << game.players_positions.size();
             std::for_each(game.players_positions.begin(), game.players_positions.end(),
-                          [this](auto &players_positions_map_entry)
-                          {
+                          [this](auto &players_positions_map_entry) {
                               BOOST_LOG_TRIVIAL(debug) << "player : " << static_cast<uint16_t>(players_positions_map_entry.first) << " position " << players_positions_map_entry.second.x << "," << players_positions_map_entry.second.y;
                               write_number<player_id_t>(players_positions_map_entry.first);
                               write_position(players_positions_map_entry.second);
                           });
+            BOOST_LOG_TRIVIAL(debug) << "Sending blocks positions, list size: " << game.blocks.size();
             write_number<list_len_t>((list_len_t)game.blocks.size());
             std::for_each(game.blocks.begin(), game.blocks.end(),
-                          [this](auto &block)
-                          {
+                          [this](auto &block) {
+                              BOOST_LOG_TRIVIAL(debug) << " position " << block.x << "," << block.y;
                               write_position(block);
                           });
             write_number<list_len_t>((list_len_t)game.bombs.size());
             std::for_each(game.bombs.begin(), game.bombs.end(),
-                          [this](auto &bomb_pair)
-                          {
+                          [this](auto &bomb_pair) {
                               write_bomb(bomb_pair.second);
                           });
+            BOOST_LOG_TRIVIAL(debug) << "Sending explosion positions, list size: " << game.explosions.size();
             write_number<list_len_t>((list_len_t)game.explosions.size());
             std::for_each(game.explosions.begin(), game.explosions.end(),
-                          [this](auto &explosion)
-                          {
+                          [this](auto &explosion) {
+                              BOOST_LOG_TRIVIAL(debug) << " position " << explosion.x << "," << explosion.y;
                               write_position(explosion);
                           });
             write_number<map_len_t>((map_len_t)game.scores.size());
@@ -550,14 +599,12 @@ namespace bomberman
             write_number<list_len_t>((list_len_t)turn.events.size());
             for (event_t &event : turn.events)
             {
-                std::visit(overloaded{[this](BombPlaced &bomb_placed)
-                                      {
+                std::visit(overloaded{[this](BombPlaced &bomb_placed) {
                                           write_number<event_code_t>(event_code_t::BombPlaced);
                                           write_number<bomb_id_t>(bomb_placed.bomb_id);
                                           write_position(bomb_placed.position);
                                       },
-                                      [this](BombExploded &bomb_exploded)
-                                      {
+                                      [this](BombExploded &bomb_exploded) {
                                           write_number<event_code_t>(event_code_t::BombExploded);
                                           write_number<bomb_id_t>(bomb_exploded.bomb_id);
                                           write_number<list_len_t>((list_len_t)bomb_exploded.robots_destroyed.size());
@@ -567,14 +614,12 @@ namespace bomberman
                                           for (const position_t &block_pos : bomb_exploded.blocks_destroyed)
                                               write_position(block_pos);
                                       },
-                                      [this](PlayerMoved &player_moved)
-                                      {
+                                      [this](PlayerMoved &player_moved) {
                                           write_number<event_code_t>(event_code_t::PlayerMoved);
                                           write_number<player_id_t>(player_moved.player_id);
                                           write_position(player_moved.position);
                                       },
-                                      [this](BlockPlaced &block_placed)
-                                      {
+                                      [this](BlockPlaced &block_placed) {
                                           write_number<event_code_t>(event_code_t::BlockPlaced);
                                           write_position(block_placed.position);
                                       }},
@@ -582,11 +627,11 @@ namespace bomberman
             }
         }
 
-        void write_game_ended(GameEnded& game_ended)
+        void write_game_ended(GameEnded &game_ended)
         {
             write_number<server_message_code_t>(server_message_code_t::GameEnded);
-            write_number<map_len_t>((map_len_t) game_ended.scores.size());
-            for(auto & scores_map_entry : game_ended.scores)
+            write_number<map_len_t>((map_len_t)game_ended.scores.size());
+            for (auto &scores_map_entry : game_ended.scores)
             {
                 write_number<player_id_t>(scores_map_entry.first);
                 write_number<score_t>(scores_map_entry.second);

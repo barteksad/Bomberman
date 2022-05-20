@@ -29,6 +29,7 @@ namespace bomberman
 
     struct Join
     {
+        Join(){};
         explicit Join(std::string &_name)
             : name(_name) {}
         std::string name;
@@ -44,6 +45,7 @@ namespace bomberman
 
     struct Move
     {
+        Move(){};
         explicit Move(direction_t _direction)
             : direction(_direction) {}
         direction_t direction;
