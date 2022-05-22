@@ -52,7 +52,7 @@ namespace bomberman
       // Connect to GUI. First resolve given endpoint to IP address.
       boost::asio::ip::udp::resolver gui_resolver(io_context);
       auto [gui_host, gui_port] = split_by_colon(args.gui_endpoint_input);
-      gui_endpoint = gui_resolver.resolve(gui_host, gui_port, ec)->endpoint();
+      gui_endpoints = gui_resolver.resolve(gui_host, gui_port, ec);
       if (ec)
         throw InvalidArguments("Invalid GUI endpoint", ec);
       // Call read from gui loop.
@@ -117,7 +117,7 @@ namespace bomberman
         read_from_gui();
       };
 
-      gui_deserializer_.get_message(message_handle_callback, gui_endpoint);
+      gui_deserializer_.get_message(message_handle_callback);
     }
 
     void handle_gui_message()
@@ -291,7 +291,8 @@ namespace bomberman
       draw_messages_q_.push(game);
     }
 
-    void process_game_ended(const GameEnded &game_ended)
+    // Maybe unused because in debug we want to assert scores but in release we do not use game_ended.
+    void process_game_ended(const GameEnded &game_ended [[maybe_unused]])
     {
       assert(game_ended.scores == game_state_.scores);
       game_state_.reset();
@@ -361,7 +362,7 @@ namespace bomberman
         NetSerializer net_serializer;
         buffer_t buffer = net_serializer.serialize(draw_messages_q_.front());
         gui_socket_.send_to(boost::asio::buffer(buffer, buffer.size()),
-                            gui_endpoint);
+                            *gui_endpoints);
         draw_messages_q_.pop();
       }
     }
@@ -385,7 +386,7 @@ namespace bomberman
       IN_GAME,
       OBSERVE
     } state_;
-    boost::asio::ip::udp::endpoint gui_endpoint;
+    boost::asio::ip::udp::resolver::iterator gui_endpoints;
     std::queue<input_message_t> input_messages_q_;
     std::queue<client_message_t> client_messages_q_;
     std::queue<server_message_t> server_messages_q_;
@@ -399,11 +400,11 @@ namespace bomberman
     boost::program_options::options_description desc("Usage");
     desc.add_options()("h", "produce help message")(
         "-d", boost::program_options::value<std::string>(),
-        "<(nazwa hosta):(port) lub (IPv4):(port) lub (IPv6):(port)>")(
+        "<(host):(port) or (IPv4):(port) or (IPv6):(port)>")(
         "-n", boost::program_options::value<std::string>(), "player name (max 255 characters)")(
         "-p", boost::program_options::value<uint16_t>(), "port number")(
         "-s", boost::program_options::value<std::string>(),
-        "<(nazwa hosta):(port) lub (IPv4):(port) lub (IPv6):(port)>");
+        "<(host):(port) or (IPv4):(port) or (IPv6):(port)>");
 
     try
     {

@@ -300,7 +300,7 @@ namespace bomberman
         explicit UdpDeserializer(boost::asio::ip::udp::socket &socket)
             : NetDeserializer(socket) { reset_state(); }
 
-        void get_message(std::function<void(input_message_t)> message_handle_callback, boost::asio::ip::udp::endpoint &gui_endpoint)
+        void get_message(std::function<void(input_message_t)> message_handle_callback)
         {
             // if buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty())
@@ -309,12 +309,12 @@ namespace bomberman
                 // receive up to maximum message length + 1 to check if upd datagram is not too long
                 socket_.async_receive_from(boost::asio::buffer(buffer.data(), MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1),
                                            gui_endpoint,
-                                           [message_handle_callback, &gui_endpoint, this](boost::system::error_code ec, std::size_t read_length) {
+                                           [message_handle_callback, this](boost::system::error_code ec, std::size_t read_length) {
                                                if (!ec)
                                                {
                                                    this->write_idx += read_length;
-                                                   //   BOOST_LOG_TRIVIAL(debug) << "received " << read_length << " bytes from gui";
-                                                   get_message(message_handle_callback, gui_endpoint);
+                                                   BOOST_LOG_TRIVIAL(debug) << "received from GUI at " << gui_endpoint;
+                                                   get_message(message_handle_callback);
                                                }
                                                else
                                                {
@@ -370,9 +370,11 @@ namespace bomberman
             else
             {
                 BOOST_LOG_TRIVIAL(debug) << "Received invalid message code from GUI";
-                return get_message(message_handle_callback, gui_endpoint);
+                return get_message(message_handle_callback);
             }
         }
+    private:
+        boost::asio::ip::udp::endpoint gui_endpoint;
     };
 
     class NetSerializer

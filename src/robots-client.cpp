@@ -45,7 +45,7 @@ int main(int ac, char *av[])
     catch (std::exception &e)
     {
         BOOST_LOG_TRIVIAL(fatal) << "error: " << e.what() << "\n";
-        std::cerr << e.what();
+        std::cerr << e.what() << "\n";
         return 1;
     }
     catch (...)
