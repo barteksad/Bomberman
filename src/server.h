@@ -14,6 +14,8 @@
 #include <string>
 #include <unordered_map>
 #include <variant>
+#include <list>
+#include <queue>
 
 namespace bomberman
 {
@@ -33,27 +35,32 @@ namespace bomberman
         size_y_t size_y;
     };
 
+    struct target_one_t
+    {
+        player_id_t to_who;
+        server_message_t message;
+    };
+
+    struct target_all_t
+    {
+        server_message_t message;
+    };
+
+    using targeted_message_t = std::variant<target_one_t, target_all_t>;
+
     namespace
     {
-        struct target_one_t
+        Hello hello_from_server_args(const robots_server_args_t& args)
         {
-            player_id_t to_who;
-            server_message_t message;
-        };
-
-        struct target_all
-        {
-            server_message_t message;
-        };
-
-        struct received_message_t
-        {
-            player_id_t from_who;
-            client_message_t message;
-        };
-
-        using targeted_message_t = std::variant<target_one_t, target_all>;
-
+            return Hello(
+              args.server_name,
+              args.players_count,
+              args.size_x,
+              args.size_y,
+              args.game_length,
+              args.explosion_radius,
+              args.bomb_timer);
+        }
     } // namespace
 
     class RobotsServer
@@ -77,14 +84,10 @@ namespace bomberman
                 [this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
                     if (!ec)
                     {
+                        // Turn off Nagle's algorithm
                         boost::asio::ip::tcp::no_delay option(true);
                         socket.set_option(option);
-                        // This lambda looks weird but mutable is needed to pass socket in spawn
-                        auto spawn_callback =
-                            [this, socket = std::move(socket)](boost::asio::yield_context yield) mutable {
-                                handle_new_connection(yield, std::move(socket));
-                            };
-                        boost::asio::spawn(io_context_, spawn_callback);
+                        handle_new_connection(std::move(socket));
                     }
                     else
                     {
@@ -95,41 +98,169 @@ namespace bomberman
                 });
         }
 
-        void handle_new_connection(boost::asio::yield_context yield, boost::asio::ip::tcp::socket &&socket)
+        void handle_new_connection(boost::asio::ip::tcp::socket &&socket)
         {
-            if (open_connections_.size() == MAX_SERVER_CONNECTIONS)
+            // If server reached connection limit, disconnect new clients.
+            if (open_connections_hm_.size() == MAX_SERVER_CONNECTIONS)
             {
                 socket.close();
                 BOOST_LOG_TRIVIAL(debug) << "Connection limit reached, closing new connection";
             }
             else
             {
-                TcpDeserializer tcp_deserializer(socket);
-                client_message_t first_message = tcp_deserializer.get_client_message(yield);
-                if(if const Join* join = std::get_if<Join>(&first_message))
+                // Assign player id to new client and call read message from client loop.
+                const player_id_t new_player_id = static_cast<player_id_t>(open_connections_hm_.size());
+                open_connections_hm_.insert({new_player_id, std::move(socket)});
+                messages_to_send_q_.push(
+                    target_one_t{
+                        .to_who = new_player_id, 
+                        .message=hello_from_server_args(args_)
+                        });
+                
+                notify_new(new_player_id, true);
+
+                auto spawn_callback =
+                    [new_player_id, this](boost::asio::yield_context yield) {
+                        read_message_from_client(yield, new_player_id);
+                    };
+                boost::asio::spawn(io_context_, spawn_callback);
+            }
+        }
+
+        void read_message_from_client(boost::asio::yield_context yield, const player_id_t player_id)
+        {
+            // Create deserializer with client socket.
+            TcpDeserializer tcp_deserializer(open_connections_hm_.at(player_id));
+
+            while(true)
+            {
+                try
                 {
-                    const player_id_t new_player_id = open_connections_.size();
-                    open_connections_.insert({new_player_id, socket});
-                    game_state_.players.insert({new_player_id, player_t{.name = join.name, .address = socket.remote_endpoint()}});
+                    const client_message_t client_message = tcp_deserializer.get_client_message(yield);
+                    
+                    // Server needs to process this message if it is in LOBBY state.
+                    // In GAME state it automatically processes messages every turn-duration miliseconds.
+                    bool handle_in_progress = !clients_messages_hm_.empty();
+                    clients_messages_hm_.insert({player_id, client_message});
+                    if(state_ == LOBBY && !handle_in_progress)
+                    {
+                        process_lobby();
+                    }
                 }
-                else
+                catch(std::exception &e)
                 {
-                    socket.close();
-                    BOOST_LOG_TRIVIAL(debug) << "New client did not send Join message as first message. Disconnects.";
+                    open_connections_hm_.erase(player_id);
+                    BOOST_LOG_TRIVIAL(debug) << "error processing player: " << player_id << " connection, what: " << e.what() << ". Disconnects.\n";
                 }
             }
         }
 
-        void read_message_from_client()
+        void send_messages()
         {
         }
 
-        void send_message()
+        void notify_new(const player_id_t player_id, bool call_send_message=false)
         {
+            // Send all accepted player messages currently stored.
+            bool send_in_progress = !messages_to_send_q_.empty();
+            for(AcceptedPlayer &accpeted : accepted_player_messages_l_)
+            {
+                target_one_t notify_new{
+                    .to_who = player_id,
+                    .message = accpeted
+                };
+                messages_to_send_q_.push(notify_new);
+            }
+            
+            // If game events is not empty, it game is in progress and we have to send all events.
+            for(const Turn & turn : turn_messages_l_)
+            {
+                target_one_t notify_new{
+                    .to_who = player_id,
+                    .message = turn
+                };
+                messages_to_send_q_.push(notify_new);
+            }
+
+            if(call_send_message && !send_in_progress && !messages_to_send_q_.empty())
+            {
+                send_messages();
+            }
         }
 
-        void add_message(client_message_t client_message)
+        void process_lobby()
         {
+            assert(!clients_messages_hm_.empty());
+            assert(state_ == LOBBY);
+
+            bool send_in_progress = !messages_to_send_q_.size();
+            std::unordered_set<player_id_t> processed_messages;
+
+            // In lobby we only accept Join messages.
+            for(const auto &[player_id, client_message] : clients_messages_hm_)
+            {
+                processed_messages.insert(player_id);
+
+                // Ignore messages in LOBBY from accepted player.
+                if(game_state_.players.contains(player_id))
+                    continue;
+
+                if(std::holds_alternative<Join>(client_message))
+                {
+                    Join join = std::get<Join>(client_message);
+                    auto &socket = open_connections_hm_.at(player_id);
+                    const std::string player_address = socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port());
+                    player_t new_player =  player_t{.name = join.name, .address = player_address};
+                    
+                    game_state_.players.insert({player_id, new_player});
+                    // Send previus accepted player messages to new client.
+                    for(AcceptedPlayer &accpeted : accepted_player_messages_l_)
+                    {
+                        target_one_t notify_new{
+                            .to_who = player_id,
+                            .message = accpeted
+                        };
+                        messages_to_send_q_.push(notify_new);
+                    }
+                    // Send information about new cliento to everyone and store this message.
+                    AcceptedPlayer accepted_player(player_id, new_player);
+                    accepted_player_messages_l_.push_back(accepted_player);
+                    messages_to_send_q_.push(target_all_t{.message = accepted_player});
+                }
+
+                if(game_state_.players.size() == args_.players_count)
+                    break;
+            }
+
+            // Erase processed messages.
+            std::erase_if(clients_messages_hm_, [&processed_messages](const auto& item)
+            { 
+                auto const& [player_id, _] = item;
+                return processed_messages.contains(player_id);
+            });
+
+            if(!send_in_progress && !messages_to_send_q_.empty())
+            {
+                send_messages();
+            }
+
+            if(game_state_.players.size() == args_.players_count)
+                start_game();
+        }
+
+        void start_game()
+        {
+            assert(game_state_.players.size() == args_.players_count);
+            assert(game_state_.blocks.size() == 0);
+            assert(game_state_.bombs.size() == 0);
+            assert(game_state_.player_to_position.size() == 0);
+            assert(game_state_.scores.size() == 0);
+            assert(turn_messages_l_.size() == 0);
+
+            messages_to_send_q_.push(target_all_t{.message = GameStarted(game_state_.players)});
+            state_ = GAME;
+
+
         }
 
         void process_one_turn()
@@ -143,8 +274,11 @@ namespace bomberman
         std::minstd_rand random_;
         boost::asio::ip::tcp::acceptor acceptor_;
         boost::asio::deadline_timer turn_timer_;
-        std::unordered_map<player_id_t, client_message_t> clients_messages_;
-        std::unordered_map<player_id_t, boost::asio::ip::tcp::socket> open_connections_;
+        std::unordered_map<player_id_t, client_message_t> clients_messages_hm_;
+        std::list<AcceptedPlayer> accepted_player_messages_l_;
+        std::list<Turn> turn_messages_l_;
+        std::queue<targeted_message_t> messages_to_send_q_;
+        std::unordered_map<player_id_t, boost::asio::ip::tcp::socket> open_connections_hm_;
         enum server_state_t
         {
             LOBBY,

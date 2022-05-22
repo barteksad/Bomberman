@@ -10,11 +10,14 @@ namespace bomberman
 {
     struct game_state_t
     {
+        game_state_t(){reset();}
+
         players_t players;
         blocks_t blocks;
         bombs_t bombs;
         player_to_position_t player_to_position;
         scores_t scores;
+        turn_t turn;
 
         void reset()
         {
@@ -23,6 +26,7 @@ namespace bomberman
             bombs.clear();
             player_to_position.clear();
             scores.clear();
+            turn = 0;
         }
     };
 

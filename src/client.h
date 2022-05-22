@@ -76,6 +76,7 @@ namespace bomberman
               // Turn off Nagle's algorithm
               boost::asio::ip::tcp::no_delay option(true);
               server_socket_.set_option(option);
+              // Create new coroutine for listening to messages.
               boost::asio::spawn(io_context_,
                                  [this](boost::asio::yield_context yield) {
                                    // Call read from server loop.
@@ -167,11 +168,11 @@ namespace bomberman
     }
 
     // --- SERVER MESSAGES PROCESSING ---
-    void process_hello(const Hello& hello)
+    void process_hello(const Hello &hello)
     {
-        hello_ = hello;
-        Lobby lobby(hello_, game_state_.players);
-        draw_messages_q_.push(lobby);
+      hello_ = hello;
+      Lobby lobby(hello_, game_state_.players);
+      draw_messages_q_.push(lobby);
     }
 
     void process_accepted_player(const AcceptedPlayer &accepted_player)
@@ -203,7 +204,7 @@ namespace bomberman
                   .timer = hello_.bomb_timer}});
     }
 
-    void process_bomb_exploded(const BombExploded &bomb_exploded, Game &game, std::unordered_set<player_id_t> &who_to_add_score)
+    void process_bomb_exploded(const BombExploded &bomb_exploded, Game &game, std::unordered_set<player_id_t> &who_to_add_score, std::unordered_set<position_t, position_t::hash> &blocks_destroyed)
     {
       // Find bomb by id to get it's position.
       auto exploded_bomb_it =
@@ -215,10 +216,12 @@ namespace bomberman
       else
       {
         // Add blocks within explosion range and erase exploded bomb.
-        game.explosions = calculate_explosion_range(
+        auto explosions = calculate_explosion_range(
             exploded_bomb_it->second.position,
             hello_.explosion_radius, hello_.size_x,
-            hello_.size_y, game_state_.blocks);
+            hello_.size_y, game_state_.blocks); 
+        for(const auto&explosion : explosions)
+          game.explosions.insert(explosion);
         game_state_.bombs.erase(exploded_bomb_it);
       }
 
@@ -233,7 +236,7 @@ namespace bomberman
       // Remove destroyed blocks.
       for (const position_t &block_destroyed :
            bomb_exploded.blocks_destroyed)
-        game_state_.blocks.erase(block_destroyed);
+        blocks_destroyed.insert(block_destroyed);
     }
 
     void process_player_moved(const PlayerMoved &player_moved)
@@ -254,12 +257,14 @@ namespace bomberman
       Game game(hello_, turn.turn, game_state_.players);
       // Each player whose robot was at least once destroyed gets point.
       std::unordered_set<player_id_t> who_to_add_score;
+      // Blocks destroyed are set after all events are processed to properly calculate explosion.
+      std::unordered_set<position_t, position_t::hash> blocks_destroyed;
       for (const event_t &event : turn.events)
       {
         std::visit(
             overloaded{
                 std::bind(&RobotsClient::process_bomb_placed, this, std::placeholders::_1),
-                std::bind(&RobotsClient::process_bomb_exploded, this, std::placeholders::_1, std::ref(game), std::ref(who_to_add_score)),
+                std::bind(&RobotsClient::process_bomb_exploded, this, std::placeholders::_1, std::ref(game), std::ref(who_to_add_score), std::ref(blocks_destroyed)),
                 std::bind(&RobotsClient::process_player_moved, this, std::placeholders::_1),
                 std::bind(&RobotsClient::process_block_placed, this, std::placeholders::_1),
             },
@@ -275,6 +280,9 @@ namespace bomberman
         if (bomb_pair.second.timer > 0)
           bomb_pair.second.timer--;
       }
+      // Erase destroyed blocks
+      for(const auto &block_destroyed : blocks_destroyed)
+        game_state_.blocks.erase(block_destroyed);
       // Set information in message to GUI .
       game.players_positions = game_state_.player_to_position;
       game.blocks = game_state_.blocks;
@@ -283,13 +291,13 @@ namespace bomberman
       draw_messages_q_.push(game);
     }
 
-    void process_game_ended(const GameEnded & game_ended)
+    void process_game_ended(const GameEnded &game_ended)
     {
       assert(game_ended.scores == game_state_.scores);
       game_state_.reset();
       state_ = client_state_t::LOBBY;
       Lobby lobby(hello_, game_state_.players);
-        draw_messages_q_.push(lobby);
+      draw_messages_q_.push(lobby);
     }
     // --- END OF SERVER MESSAGES PROCESSING ---
 
@@ -397,36 +405,45 @@ namespace bomberman
         "-s", boost::program_options::value<std::string>(),
         "<(nazwa hosta):(port) lub (IPv4):(port) lub (IPv6):(port)>");
 
-    boost::program_options::variables_map vm;
-    boost::program_options::store(
-        boost::program_options::parse_command_line(ac, av, desc), vm);
-    boost::program_options::notify(vm);
+    try
+    {
+      boost::program_options::variables_map vm;
+      boost::program_options::store(
+          boost::program_options::parse_command_line(ac, av, desc), vm);
+      boost::program_options::notify(vm);
 
-    if (vm.count("help") ||
-        !(vm.count("-d") && vm.count("-n") && vm.count("-p") && vm.count("-s")))
+      if (vm.count("help") ||
+          !(vm.count("-d") && vm.count("-n") && vm.count("-p") && vm.count("-s")))
+      {
+        std::cout << desc;
+        exit(1);
+      }
+
+      robots_client_args_t args;
+
+      args.server_endpoint_input = vm["-s"].as<std::string>();
+      args.gui_endpoint_input = vm["-d"].as<std::string>();
+      args.player_name = vm["-n"].as<std::string>();
+      args.port = vm["-p"].as<uint16_t>();
+
+      if (args.player_name.length() > 255)
+        throw InvalidArguments("player name must be shorter than 256 characters");
+
+      BOOST_LOG_TRIVIAL(debug) << "Run with arguments, server_endpoint_input: "
+                               << args.server_endpoint_input
+                               << ", gui_endpoint_input: "
+                               << args.gui_endpoint_input
+                               << ", player_name: " << args.player_name
+                               << ", port: " << args.port;
+
+      return args;
+    }
+    catch (...)
     {
       std::cout << desc;
       exit(1);
     }
-
-    robots_client_args_t args;
-
-    args.server_endpoint_input = vm["-s"].as<std::string>();
-    args.gui_endpoint_input = vm["-d"].as<std::string>();
-    args.player_name = vm["-n"].as<std::string>();
-    args.port = vm["-p"].as<uint16_t>();
-
-    if (args.player_name.length() > 255)
-      throw InvalidArguments("player name must be shorter than 255 characters");
-
-    BOOST_LOG_TRIVIAL(debug) << "Run with arguments, server_endpoint_input: "
-                             << args.server_endpoint_input
-                             << ", gui_endpoint_input: "
-                             << args.gui_endpoint_input
-                             << ", player_name: " << args.player_name
-                             << ", port: " << args.port;
-
-    return args;
+    __builtin_unreachable();
   }
 
 } // namespace bomberman
