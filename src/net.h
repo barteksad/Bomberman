@@ -13,6 +13,7 @@
 namespace bomberman
 {
 
+    // Concept for messages.
     template <class T>
     concept message_t = requires()
     {
@@ -22,6 +23,7 @@ namespace bomberman
             std::same_as<T, draw_message_t>;
     };
 
+    // Basic net deserializer which knows how to decode numbers to host order and stores buffer and its read/write positions.
     template <class S>
     requires(std::same_as<S, boost::asio::ip::tcp::socket> ||
              std::same_as<S, boost::asio::ip::udp::socket>) class NetDeserializer
@@ -62,6 +64,8 @@ namespace bomberman
         }
     };
 
+    // Class for reading and deserializing from tcp stream.
+    // It uses coroutines to wait for next TCP data chunk.
     class TcpDeserializer : public NetDeserializer<boost::asio::ip::tcp::socket>
     {
     public:
@@ -113,6 +117,7 @@ namespace bomberman
         }
 
     private:
+        // Read n bytes from TCP stream. Handles buffer resizing and write index shifting.
         void read_n_bytes(std::size_t read_n, boost::asio::yield_context yield)
         {
             buffer.resize(buffer.size() + read_n);
@@ -134,6 +139,7 @@ namespace bomberman
             return decode_number<T>();
         }
 
+        // Reads and decodes string in specified format. Works with UTF-8.
         std::string get_string(boost::asio::yield_context yield)
         {
             str_len_t str_len = get_number<str_len_t>(yield);
@@ -294,6 +300,7 @@ namespace bomberman
         }
     };
 
+    // Class for working with UDP datagrams.
     class UdpDeserializer : public NetDeserializer<boost::asio::ip::udp::socket>
     {
     public:
@@ -302,38 +309,33 @@ namespace bomberman
 
         void get_message(std::function<void(input_message_t)> message_handle_callback)
         {
-            // if buffer is empty we asynchronously listen on incoming messages and then call this function again
+            // If buffer is empty we asynchronously listen on incoming messages and then call this function again
             if (buffer.empty())
             {
                 buffer.resize(MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1);
-                // receive up to maximum message length + 1 to check if upd datagram is not too long
+                auto after_receive_callback = [message_handle_callback, this](boost::system::error_code ec, std::size_t read_length) {
+                    if (!ec)
+                    {
+                        this->write_idx += read_length;
+                        BOOST_LOG_TRIVIAL(debug) << "received from GUI at " << gui_endpoint;
+                        get_message(message_handle_callback);
+                    }
+                    else
+                    {
+                        BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message";
+                        throw ReceiveError("GUI", ec);
+                    }
+                };
+                // Receive up to maximum message length + 1 to check if upd datagram is not too long.
                 socket_.async_receive_from(boost::asio::buffer(buffer.data(), MAX_GUI_TO_CLIENT_MESSAGE_SIZE + 1),
                                            gui_endpoint,
-                                           [message_handle_callback, this](boost::system::error_code ec, std::size_t read_length) {
-                                               if (!ec)
-                                               {
-                                                   this->write_idx += read_length;
-                                                   BOOST_LOG_TRIVIAL(debug) << "received from GUI at " << gui_endpoint;
-                                                   get_message(message_handle_callback);
-                                               }
-                                               else
-                                               {
-                                                   BOOST_LOG_TRIVIAL(debug) << "Error in UdpDeserializer::get_message";
-                                                   throw ReceiveError("GUI", ec);
-                                               }
-                                           });
+                                           after_receive_callback);
                 return;
             }
 
             std::optional<input_message_t> input_message;
             auto message_code = decode_number<input_message_code_t>();
             BOOST_LOG_TRIVIAL(debug) << "GUI message code: " << static_cast<uint16_t>(message_code);
-            // if (message_code < input_message_code_t::PlaceBomb || message_code > input_message_code_t::Move)
-            // {
-            //     BOOST_LOG_TRIVIAL(debug) << "Received invalid message code from GUI";
-            //     reset_state();
-            //     return get_message(message_handle_callback, gui_endpoint);
-            // }
             switch (message_code)
             {
             case input_message_code_t::PlaceBomb:
@@ -378,6 +380,7 @@ namespace bomberman
         boost::asio::ip::udp::endpoint gui_endpoint;
     };
 
+    // Class for serializing data in specific format.
     class NetSerializer
     {
     public:
@@ -438,6 +441,7 @@ namespace bomberman
             buffer.resize(0);
         }
 
+        // Writes number in net order to buffer.
         template <typename T>
         void write_number(T number)
         {
@@ -454,6 +458,7 @@ namespace bomberman
             write_bytes_to_buffer(bytes, sizeof(T));
         }
 
+        // Resize and write bytes to buffer
         void write_bytes_to_buffer(const char *bytes, std::size_t length)
         {
             assert(bytes);
@@ -541,18 +546,14 @@ namespace bomberman
                               write_player(players_map_entry.second);
                           });
             write_number<map_len_t>((map_len_t)game.players_positions.size());
-            BOOST_LOG_TRIVIAL(debug) << "Sending players positions, map size: " << game.players_positions.size();
             std::for_each(game.players_positions.begin(), game.players_positions.end(),
                           [this](auto &players_positions_map_entry) {
-                              BOOST_LOG_TRIVIAL(debug) << "player : " << static_cast<uint16_t>(players_positions_map_entry.first) << " position " << players_positions_map_entry.second.x << "," << players_positions_map_entry.second.y;
                               write_number<player_id_t>(players_positions_map_entry.first);
                               write_position(players_positions_map_entry.second);
                           });
-            BOOST_LOG_TRIVIAL(debug) << "Sending blocks positions, list size: " << game.blocks.size();
             write_number<list_len_t>((list_len_t)game.blocks.size());
             std::for_each(game.blocks.begin(), game.blocks.end(),
                           [this](auto &block) {
-                              BOOST_LOG_TRIVIAL(debug) << " position " << block.x << "," << block.y;
                               write_position(block);
                           });
             write_number<list_len_t>((list_len_t)game.bombs.size());
@@ -560,11 +561,9 @@ namespace bomberman
                           [this](auto &bomb_pair) {
                               write_bomb(bomb_pair.second);
                           });
-            BOOST_LOG_TRIVIAL(debug) << "Sending explosion positions, list size: " << game.explosions.size();
             write_number<list_len_t>((list_len_t)game.explosions.size());
             std::for_each(game.explosions.begin(), game.explosions.end(),
                           [this](auto &explosion) {
-                              BOOST_LOG_TRIVIAL(debug) << " position " << explosion.x << "," << explosion.y;
                               write_position(explosion);
                           });
             write_number<map_len_t>((map_len_t)game.scores.size());
