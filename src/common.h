@@ -18,6 +18,7 @@ namespace bomberman
         player_to_position_t player_to_position;
         scores_t scores;
         turn_t turn;
+        bomb_id_t free_bomb_id;
 
         void reset()
         {
@@ -27,6 +28,7 @@ namespace bomberman
             player_to_position.clear();
             scores.clear();
             turn = 0;
+            free_bomb_id = 0;
         }
     };
 

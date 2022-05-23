@@ -105,7 +105,7 @@ namespace bomberman
         BlockPlaced = 3
     };
 
-    using players_t = std::unordered_map<player_id_t, player_t>;
+    using players_t = std::map<player_id_t, player_t>;
     using robots_destroyed_t = std::unordered_set<player_id_t>;
     using blocks_destroyed_t = std::unordered_set<position_t, position_t::hash>;
     using player_positions_t = std::unordered_map<player_id_t, position_t>;

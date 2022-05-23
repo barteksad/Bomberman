@@ -144,6 +144,18 @@ namespace bomberman
     using server_message_t = std::variant<Hello, AcceptedPlayer, GameStarted, Turn, GameEnded>;
     using draw_message_t = std::variant<Lobby, Game>;
 
+    struct target_one_t
+    {
+        player_id_t to_who;
+        server_message_t message;
+    };
+
+    struct target_all_t
+    {
+        server_message_t message;
+    };
+
+    using targeted_message_t = std::variant<target_one_t, target_all_t>;
 } // namespace bomberman
 
 #endif // BOMBERMAN_MESSAGES_H

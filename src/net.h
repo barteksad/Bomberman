@@ -365,7 +365,7 @@ namespace bomberman
 
             reset_state();
 
-            if(input_message.has_value())
+            if (input_message.has_value())
                 return message_handle_callback(input_message.value());
             else
             {
@@ -373,6 +373,7 @@ namespace bomberman
                 return get_message(message_handle_callback);
             }
         }
+
     private:
         boost::asio::ip::udp::endpoint gui_endpoint;
     };
@@ -416,6 +417,16 @@ namespace bomberman
                            std::bind(&NetSerializer::write_game, this, std::placeholders::_1),
                        },
                        draw_message);
+            return buffer;
+        }
+        buffer_t &serialize(targeted_message_t &targeted_message)
+        {
+            reset_state();
+            std::visit(overloaded{
+                           [this](target_one_t &target_one) { serialize(target_one.message); },
+                           [this](target_all_t &target_all) { serialize(target_all.message); },
+                       },
+                       targeted_message);
             return buffer;
         }
 

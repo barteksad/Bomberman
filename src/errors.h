@@ -44,6 +44,13 @@ namespace bomberman
                 : std::invalid_argument(description) {}
     };
 
+    class TimerError : public std::runtime_error
+    {
+        public:
+            explicit TimerError(std::string && description, boost::system::error_code ec)
+                : std::runtime_error(description + ", boost error message: " + ec.message()) {}
+    };
+
 } // namespace bomberman
 
 #endif

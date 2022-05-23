@@ -6,16 +6,19 @@
 
 #include <boost/asio.hpp>
 #include <boost/bind/bind.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/program_options.hpp>
 
 #include <iostream>
+#include <list>
+#include <map>
+#include <optional>
+#include <queue>
 #include <random>
 #include <string>
 #include <unordered_map>
 #include <variant>
-#include <list>
-#include <queue>
 
 namespace bomberman
 {
@@ -35,31 +38,18 @@ namespace bomberman
         size_y_t size_y;
     };
 
-    struct target_one_t
-    {
-        player_id_t to_who;
-        server_message_t message;
-    };
-
-    struct target_all_t
-    {
-        server_message_t message;
-    };
-
-    using targeted_message_t = std::variant<target_one_t, target_all_t>;
-
     namespace
     {
-        Hello hello_from_server_args(const robots_server_args_t& args)
+        Hello hello_from_server_args(const robots_server_args_t &args)
         {
             return Hello(
-              args.server_name,
-              args.players_count,
-              args.size_x,
-              args.size_y,
-              args.game_length,
-              args.explosion_radius,
-              args.bomb_timer);
+                args.server_name,
+                args.players_count,
+                args.size_x,
+                args.size_y,
+                args.game_length,
+                args.explosion_radius,
+                args.bomb_timer);
         }
     } // namespace
 
@@ -113,10 +103,9 @@ namespace bomberman
                 open_connections_hm_.insert({new_player_id, std::move(socket)});
                 messages_to_send_q_.push(
                     target_one_t{
-                        .to_who = new_player_id, 
-                        .message=hello_from_server_args(args_)
-                        });
-                
+                        .to_who = new_player_id,
+                        .message = hello_from_server_args(args_)});
+
                 notify_new(new_player_id, true);
 
                 auto spawn_callback =
@@ -132,57 +121,102 @@ namespace bomberman
             // Create deserializer with client socket.
             TcpDeserializer tcp_deserializer(open_connections_hm_.at(player_id));
 
-            while(true)
+            while (true)
             {
                 try
                 {
                     const client_message_t client_message = tcp_deserializer.get_client_message(yield);
-                    
+
                     // Server needs to process this message if it is in LOBBY state.
                     // In GAME state it automatically processes messages every turn-duration miliseconds.
                     bool handle_in_progress = !clients_messages_hm_.empty();
                     clients_messages_hm_.insert({player_id, client_message});
-                    if(state_ == LOBBY && !handle_in_progress)
+                    if (state_ == LOBBY && !handle_in_progress)
                     {
                         process_lobby();
                     }
                 }
-                catch(std::exception &e)
+                catch (std::exception &e)
                 {
                     open_connections_hm_.erase(player_id);
-                    BOOST_LOG_TRIVIAL(debug) << "error processing player: " << player_id << " connection, what: " << e.what() << ". Disconnects.\n";
+                    BOOST_LOG_TRIVIAL(debug) << "error processing player: " << player_id << " connection, boost error: " << e.what() << ". Disconnects.\n";
                 }
+            }
+        }
+
+        void send_to_one(buffer_t &buffer, target_one_t &targeted_message)
+        {
+            auto target = open_connections_hm_.find(targeted_message.to_who);
+            if (target == open_connections_hm_.end())
+                return;
+
+            auto after_write_callback = [to_who = targeted_message.to_who, this](boost::system::error_code ec, std::size_t) {
+                if (ec)
+                {
+                    BOOST_LOG_TRIVIAL(debug) << "error sending to client " << to_who << ", disconnects";
+                    open_connections_hm_.erase(to_who);
+                }
+            };
+            boost::asio::async_write(target->second,
+                                     boost::asio::buffer(buffer, buffer.size()),
+                                     after_write_callback);
+        }
+
+        void send_to_all(buffer_t &buffer)
+        {
+            for (auto &[player_id, socket] : open_connections_hm_)
+            {
+                auto after_write_callback = [to_who = player_id, this](boost::system::error_code ec, std::size_t) {
+                    if (ec)
+                    {
+                        BOOST_LOG_TRIVIAL(debug) << "error sending to client " << to_who << ", disconnects";
+                        open_connections_hm_.erase(to_who);
+                    }
+                };
+                boost::asio::async_write(socket,
+                                         boost::asio::buffer(buffer, buffer.size()),
+                                         after_write_callback);
             }
         }
 
         void send_messages()
         {
+            assert(!messages_to_send_q_.empty());
+            NetSerializer net_serializer;
+
+            while (!messages_to_send_q_.empty())
+            {
+                targeted_message_t targeted_message = messages_to_send_q_.front();
+                buffer_t buffer = net_serializer.serialize(targeted_message);
+                if (std::holds_alternative<target_one_t>(targeted_message))
+                    send_to_one(buffer, std::get<target_one_t>(targeted_message));
+                else
+                    send_to_all(buffer);
+            }
         }
 
-        void notify_new(const player_id_t player_id, bool call_send_message=false)
+        void notify_new(const player_id_t player_id, bool call_send_message = false)
         {
             // Send all accepted player messages currently stored.
             bool send_in_progress = !messages_to_send_q_.empty();
-            for(AcceptedPlayer &accpeted : accepted_player_messages_l_)
+            for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
             {
                 target_one_t notify_new{
                     .to_who = player_id,
-                    .message = accpeted
-                };
-                messages_to_send_q_.push(notify_new);
-            }
-            
-            // If game events is not empty, it game is in progress and we have to send all events.
-            for(const Turn & turn : turn_messages_l_)
-            {
-                target_one_t notify_new{
-                    .to_who = player_id,
-                    .message = turn
-                };
+                    .message = accpeted};
                 messages_to_send_q_.push(notify_new);
             }
 
-            if(call_send_message && !send_in_progress && !messages_to_send_q_.empty())
+            // If game events is not empty, it game is in progress and we have to send all events.
+            for (const Turn &turn : turn_messages_l_)
+            {
+                target_one_t notify_new{
+                    .to_who = player_id,
+                    .message = turn};
+                messages_to_send_q_.push(notify_new);
+            }
+
+            if (call_send_message && !send_in_progress && !messages_to_send_q_.empty())
             {
                 send_messages();
             }
@@ -197,29 +231,28 @@ namespace bomberman
             std::unordered_set<player_id_t> processed_messages;
 
             // In lobby we only accept Join messages.
-            for(const auto &[player_id, client_message] : clients_messages_hm_)
+            for (const auto &[player_id, client_message] : clients_messages_hm_)
             {
                 processed_messages.insert(player_id);
 
                 // Ignore messages in LOBBY from accepted player.
-                if(game_state_.players.contains(player_id))
+                if (game_state_.players.contains(player_id))
                     continue;
 
-                if(std::holds_alternative<Join>(client_message))
+                if (std::holds_alternative<Join>(client_message))
                 {
                     Join join = std::get<Join>(client_message);
                     auto &socket = open_connections_hm_.at(player_id);
                     const std::string player_address = socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port());
-                    player_t new_player =  player_t{.name = join.name, .address = player_address};
-                    
+                    player_t new_player = player_t{.name = join.name, .address = player_address};
+
                     game_state_.players.insert({player_id, new_player});
                     // Send previus accepted player messages to new client.
-                    for(AcceptedPlayer &accpeted : accepted_player_messages_l_)
+                    for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
                     {
                         target_one_t notify_new{
                             .to_who = player_id,
-                            .message = accpeted
-                        };
+                            .message = accpeted};
                         messages_to_send_q_.push(notify_new);
                     }
                     // Send information about new cliento to everyone and store this message.
@@ -228,28 +261,28 @@ namespace bomberman
                     messages_to_send_q_.push(target_all_t{.message = accepted_player});
                 }
 
-                if(game_state_.players.size() == args_.players_count)
+                if (game_state_.players.size() == args_.players_count)
                     break;
             }
 
             // Erase processed messages.
-            std::erase_if(clients_messages_hm_, [&processed_messages](const auto& item)
-            { 
-                auto const& [player_id, _] = item;
+            std::erase_if(clients_messages_hm_, [&processed_messages](const auto &item) {
+                auto const &[player_id, _] = item;
                 return processed_messages.contains(player_id);
             });
 
-            if(!send_in_progress && !messages_to_send_q_.empty())
+            if (!send_in_progress && !messages_to_send_q_.empty())
             {
                 send_messages();
             }
 
-            if(game_state_.players.size() == args_.players_count)
+            if (game_state_.players.size() == args_.players_count)
                 start_game();
         }
 
         void start_game()
         {
+            // All variables should be zeroed in end_game()
             assert(game_state_.players.size() == args_.players_count);
             assert(game_state_.blocks.size() == 0);
             assert(game_state_.bombs.size() == 0);
@@ -257,14 +290,213 @@ namespace bomberman
             assert(game_state_.scores.size() == 0);
             assert(turn_messages_l_.size() == 0);
 
+            bool send_in_progress = !messages_to_send_q_.empty();
+
             messages_to_send_q_.push(target_all_t{.message = GameStarted(game_state_.players)});
             state_ = GAME;
 
+            events_t events;
 
+            // Generate random players positions and set their scores to zero.
+            for (auto &[player_id, _] : game_state_.players)
+            {
+                position_t player_position{
+                    .x = static_cast<size_x_t>(random_() % (long unsigned int)args_.size_x),
+                    .y = static_cast<size_y_t>(random_() % (long unsigned int)args_.size_y),
+                };
+                game_state_.player_to_position.insert({player_id, player_position});
+                game_state_.scores[player_id] = 0;
+                events.push_back(PlayerMoved(player_id, player_position));
+            }
+
+            for (auto i = 0; i < args_.initial_blocks; i++)
+            {
+                position_t block_position{
+                    .x = static_cast<size_x_t>(random_() % (long unsigned int)args_.size_x),
+                    .y = static_cast<size_y_t>(random_() % (long unsigned int)args_.size_y),
+                };
+                game_state_.blocks.insert(block_position);
+                events.push_back(BlockPlaced(block_position));
+            }
+
+            Turn turn(0, events);
+            messages_to_send_q_.push(target_all_t{.message = turn});
+            turn_messages_l_.push_back(turn);
+
+            if (!send_in_progress)
+            {
+                send_messages();
+            }
+
+            turn_timer_.expires_from_now(boost::posix_time::milliseconds(args_.turn_duration));
+            turn_timer_.async_wait(boost::bind(&RobotsServer::process_one_turn, this, boost::asio::placeholders::error));
         }
 
-        void process_one_turn()
+        void end_game()
         {
+        }
+
+        void process_bombs(robots_destroyed_t &robots_destroyed, blocks_destroyed_t &blocks_destroyed, events_t &events)
+        {
+            // Calculate exploding bombs effects.
+            for (auto &[bomb_id, bomb] : game_state_.bombs)
+            {
+                // Bomb explodes.
+                if (!--bomb.timer)
+                {
+                    BombExploded bomb_exploded;
+                    bomb_exploded.bomb_id = bomb_id;
+                    auto explosion_range = calculate_explosion_range(bomb.position, args_.explosion_radius, args_.size_x, args_.size_y, game_state_.blocks);
+                    for (const auto &position : explosion_range)
+                    {
+                        if (game_state_.blocks.contains(position))
+                        {
+                            blocks_destroyed.insert(position);
+                            bomb_exploded.blocks_destroyed.insert(position);
+                            for (const auto &[player_id, player_position] : game_state_.player_to_position)
+                            {
+                                if (player_position == position)
+                                {
+                                    robots_destroyed.insert(player_id);
+                                    bomb_exploded.robots_destroyed.insert(player_id);
+                                }
+                            }
+                        }
+                    }
+                    events.push_back(bomb_exploded);
+                }
+            }
+
+            std::erase_if(game_state_.bombs,
+                          [](const auto &bomb_pair) {
+                              return !bomb_pair.second.timer;
+                          });
+            std::erase_if(game_state_.blocks,
+                          [&blocks_destroyed](const auto &block_position) {
+                              return blocks_destroyed.contains(block_position);
+                          });
+        }
+
+        std::optional<position_t> calculate_move(position_t position, Move &move)
+        {
+            int32_t x = static_cast<int32_t>(position.x);
+            int32_t y = static_cast<int32_t>(position.y);
+            switch (move.direction)
+            {
+            case bomberman::direction_t::Up:
+                y++;
+                break;
+            case bomberman::direction_t::Right:
+                x++;
+                break;
+            case bomberman::direction_t::Down:
+                y--;
+                break;
+            case bomberman::direction_t::Left:
+                x--;
+                break;
+            };
+
+            if (x < 0 || y < 0 || x >= args_.size_x || y >= args_.size_y)
+                return {};
+            position.x = static_cast<size_x_t>(x);
+            position.y = static_cast<size_y_t>(y);
+            if (game_state_.blocks.contains(position))
+                return {};
+            else
+                return position;
+        }
+
+        void process_player_turn(events_t &events, const player_id_t player_id, client_message_t &client_message)
+        {
+            std::visit(overloaded{
+                           [](Join &) {},
+                           [player_id, &events, this](PlaceBomb &) {
+                               const bomb_id_t bomb_id = game_state_.free_bomb_id++;
+                               bomb_t bomb{
+                                   .position = game_state_.player_to_position[player_id],
+                                   .timer = args_.bomb_timer,
+                               };
+                               game_state_.bombs.insert({bomb_id, bomb});
+                               events.push_back(BombPlaced(bomb_id, bomb.position));
+                           },
+                           [player_id, &events, this](PlaceBlock &) {
+                               position_t block_position = game_state_.player_to_position[player_id];
+                               if (game_state_.blocks.insert(block_position).second)
+                               {
+                                   events.push_back(BlockPlaced(block_position));
+                               }
+                           },
+                           [player_id, &events, this](Move &move) {
+                               position_t position = game_state_.player_to_position[player_id];
+                               auto new_position = calculate_move(position, move);
+                               if (new_position)
+                               {
+                                   game_state_.player_to_position[player_id] = new_position.value();
+                                   events.push_back(PlayerMoved(player_id, new_position.value()));
+                               }
+                           }},
+                       client_message);
+        }
+
+        void process_players(robots_destroyed_t &robots_destroyed, events_t &events)
+        {
+            for (auto &[player_id, player] : game_state_.players)
+            {
+                if (!robots_destroyed.contains(player_id))
+                {
+                    auto player_message_it = clients_messages_hm_.find(player_id);
+                    if (player_message_it != clients_messages_hm_.end())
+                    {
+                        process_player_turn(events, player_id, player_message_it->second);
+                    }
+                }
+                else
+                {
+                    position_t player_new_position{
+                        .x = static_cast<size_x_t>(random_() % (long unsigned int)args_.size_x),
+                        .y = static_cast<size_y_t>(random_() % (long unsigned int)args_.size_y),
+                    };
+                    game_state_.player_to_position[player_id] = player_new_position;
+                    events.push_back(PlayerMoved(player_id, player_new_position));
+                }
+            }
+        }
+
+        void process_one_turn(const boost::system::error_code &ec)
+        {
+            if (ec)
+            {
+                BOOST_LOG_TRIVIAL(debug) << "Error in turn_timer_.async_wait , boost error:" << ec.message();
+                throw TimerError("Error in turn_timer_.async_wait", ec);
+            }
+
+            robots_destroyed_t robots_destroyed;
+            blocks_destroyed_t blocks_destroyed;
+            events_t events;
+
+            process_bombs(robots_destroyed, blocks_destroyed, events);
+            process_players(robots_destroyed, events);
+
+            Turn turn(game_state_.turn++, events);
+            turn_messages_l_.push_back(turn);
+
+            bool send_in_progress = !messages_to_send_q_.empty();
+            messages_to_send_q_.push(target_all_t{.message = turn});
+            if (!send_in_progress)
+            {
+                send_messages();
+            }
+
+            if (game_state_.turn == args_.game_length)
+            {
+                end_game();
+            }
+            else
+            {
+                turn_timer_.expires_at(turn_timer_.expires_at() + boost::posix_time::milliseconds(args_.turn_duration));
+                turn_timer_.async_wait(boost::bind(&RobotsServer::process_one_turn, this, boost::asio::placeholders::error));
+            }
         }
 
     private:
