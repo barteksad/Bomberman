@@ -191,9 +191,6 @@ namespace bomberman
       state_ = client_state_t::IN_GAME;
       for (auto &players_map_entry : game_state_.players)
         game_state_.scores.insert({players_map_entry.first, 0});
-      Game game(hello_, 0, game_state_.players);
-      game.scores = game_state_.scores;
-      draw_messages_q_.push(game);
     }
 
     void process_bomb_placed(const BombPlaced &bomb_placed)
@@ -219,8 +216,8 @@ namespace bomberman
         auto explosions = calculate_explosion_range(
             exploded_bomb_it->second.position,
             hello_.explosion_radius, hello_.size_x,
-            hello_.size_y, game_state_.blocks); 
-        for(const auto&explosion : explosions)
+            hello_.size_y, game_state_.blocks);
+        for (const auto &explosion : explosions)
           game.explosions.insert(explosion);
         game_state_.bombs.erase(exploded_bomb_it);
       }
@@ -259,6 +256,14 @@ namespace bomberman
       std::unordered_set<player_id_t> who_to_add_score;
       // Blocks destroyed are set after all events are processed to properly calculate explosion.
       std::unordered_set<position_t, position_t::hash> blocks_destroyed;
+      
+      // Decrease each bomb timer.
+      for (auto &bomb_pair : game_state_.bombs)
+      {
+        if (bomb_pair.second.timer > 0)
+          bomb_pair.second.timer--;
+      }
+
       for (const event_t &event : turn.events)
       {
         std::visit(
@@ -274,14 +279,8 @@ namespace bomberman
       {
         game_state_.scores[player]++;
       }
-      // Decrease each bomb timer.
-      for (auto &bomb_pair : game_state_.bombs)
-      {
-        if (bomb_pair.second.timer > 0)
-          bomb_pair.second.timer--;
-      }
       // Erase destroyed blocks
-      for(const auto &block_destroyed : blocks_destroyed)
+      for (const auto &block_destroyed : blocks_destroyed)
         game_state_.blocks.erase(block_destroyed);
       // Set information in message to GUI .
       game.players_positions = game_state_.player_to_position;
