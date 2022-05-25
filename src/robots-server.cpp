@@ -20,6 +20,10 @@ int main(int ac, char *av[])
     {
         init_logging();
         bomberman::robots_server_args_t args = bomberman::get_server_arguments(ac, av);
+        boost::asio::io_context io_context;
+
+        bomberman::RobotsServer robot_server(args, io_context);
+        io_context.run();
     }
     catch (std::exception &e)
     {

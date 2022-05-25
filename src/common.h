@@ -8,6 +8,7 @@
 
 namespace bomberman
 {
+    // This structure is used by client and server to store current game state.
     struct game_state_t
     {
         game_state_t(){reset();}
@@ -32,11 +33,11 @@ namespace bomberman
         }
     };
 
-    std::unordered_set<position_t, position_t::hash> calculate_explosion_range(const position_t bomb_position, const explosion_radius_t explosion_radius,
+    explosions_t calculate_explosion_range(const position_t bomb_position, const explosion_radius_t explosion_radius,
                                                              const size_x_t size_x, const size_y_t size_y,
                                                              const blocks_t blocks)
     {
-        std::unordered_set<position_t, position_t::hash> result;
+        explosions_t result;
 
         for (auto sign : {-1, 1})
         {

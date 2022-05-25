@@ -105,14 +105,16 @@ namespace bomberman
         BlockPlaced = 3
     };
 
+    using position_set_t_ = std::unordered_set<position_t, position_t::hash>;
+
     using players_t = std::map<player_id_t, player_t>;
     using robots_destroyed_t = std::unordered_set<player_id_t>;
-    using blocks_destroyed_t = std::unordered_set<position_t, position_t::hash>;
+    using blocks_destroyed_t = position_set_t_;
     using player_positions_t = std::unordered_map<player_id_t, position_t>;
     using id_to_bomb_pos_t = std::unordered_map<bomb_id_t, position_t>;
     using player_to_position_t = std::unordered_map<player_id_t, position_t>;
-    using explosions_t = std::unordered_set<position_t, position_t::hash>;
-    using blocks_t = std::unordered_set<position_t, position_t::hash>;
+    using explosions_t = position_set_t_;
+    using blocks_t = position_set_t_;
     using bombs_t = std::unordered_map<bomb_id_t, bomb_t>;
     using scores_t = std::unordered_map<player_id_t, score_t>;
 
@@ -154,12 +156,10 @@ namespace bomberman
     using event_t = std::variant<BombPlaced, BombExploded, PlayerMoved, BlockPlaced>;
     using events_t = std::list<event_t>;
 
-    // Use preprocessing to silent warnings if target is only client or server.
-    #ifdef ROBOTS_CLIENT
     // size of move message
     static constinit std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_code_t) + sizeof(direction_t);
-    #endif
 
+    // Use preprocessing to silent warnings if target is only client or server.
     #ifdef ROBOTS_SERVER
     static constinit std::size_t MAX_SERVER_CONNECTIONS = 25;
     #endif

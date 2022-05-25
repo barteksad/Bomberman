@@ -1,6 +1,12 @@
 #ifndef BOMBERMAN_SERVER_H
 #define BOMBERMAN_SERVER_H
 
+// This is just to silent boost pragma message about old version of this file.
+// The correct version is included above.
+#include <boost/core/scoped_enum.hpp>
+#define BOOST_DETAIL_SCOPED_ENUM_EMULATION_HPP
+// --- 
+
 #include "common.h"
 #include "net.h"
 
@@ -140,6 +146,7 @@ namespace bomberman
                 {
                     open_connections_hm_.erase(player_id);
                     BOOST_LOG_TRIVIAL(debug) << "error processing player: " << player_id << " connection, boost error: " << e.what() << ". Disconnects.\n";
+                    break;
                 }
             }
         }
@@ -192,6 +199,8 @@ namespace bomberman
                     send_to_one(buffer, std::get<target_one_t>(targeted_message));
                 else
                     send_to_all(buffer);
+
+                messages_to_send_q_.pop();
             }
         }
 
@@ -243,20 +252,16 @@ namespace bomberman
                 {
                     Join join = std::get<Join>(client_message);
                     auto &socket = open_connections_hm_.at(player_id);
-                    const std::string player_address = socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port());
+                    const std::string player_address =  socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port());
+                    BOOST_LOG_TRIVIAL(debug) << "New player address: " << player_address;
                     player_t new_player = player_t{.name = join.name, .address = player_address};
 
                     game_state_.players.insert({player_id, new_player});
-                    // Send previus accepted player messages to new client.
-                    for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
-                    {
-                        target_one_t notify_new{
-                            .to_who = player_id,
-                            .message = accpeted};
-                        messages_to_send_q_.push(notify_new);
-                    }
+                    
                     // Send information about new cliento to everyone and store this message.
                     AcceptedPlayer accepted_player(player_id, new_player);
+                    target_all_t notify_all{.message = accepted_player};
+                    messages_to_send_q_.push(notify_all);
                     accepted_player_messages_l_.push_back(accepted_player);
                     messages_to_send_q_.push(target_all_t{.message = accepted_player});
                 }
@@ -334,6 +339,20 @@ namespace bomberman
 
         void end_game()
         {
+            state_ = LOBBY;
+            clients_messages_hm_.clear();
+            accepted_player_messages_l_.clear();
+            turn_messages_l_.clear();
+
+            GameEnded game_ended(game_state_.scores);
+            bool send_in_progress = !messages_to_send_q_.empty();
+            messages_to_send_q_.push(target_all_t{.message = game_ended});
+            if(!send_in_progress)
+            {
+                send_messages();
+            }
+
+            game_state_.reset();
         }
 
         void process_bombs(robots_destroyed_t &robots_destroyed, blocks_destroyed_t &blocks_destroyed, events_t &events)
@@ -521,7 +540,7 @@ namespace bomberman
     robots_server_args_t get_server_arguments(int ac, char *av[])
     {
         boost::program_options::options_description desc("Usage");
-        desc.add_options()("-h", "produce help message")("-b", boost::program_options::value<bomb_timer_t>(), "bomb-timer <u16>")("-c", boost::program_options::value<players_count_t>(), "players-count <u8>")("-d", boost::program_options::value<turn_duration_t>(), "turn-duration <u64, milisekundy>")("-e", boost::program_options::value<explosion_radius_t>(), "explosion-radius <u16>")("-k", boost::program_options::value<uint16_t>(), "initial-blocks <u16>")("-l", boost::program_options::value<game_length_t>(), "game-length <u16>")("-n", boost::program_options::value<std::string>(), "server-name <String>")("-p", boost::program_options::value<uint16_t>(), "port <u16>")("-s", boost::program_options::value<uint32_t>()->default_value(static_cast<uint32_t>(time(NULL))), "seed <u32, parametr opcjonalny>")("-x", boost::program_options::value<size_x_t>(), "size-x <u16>")("-y", boost::program_options::value<size_y_t>(), "size-y <u16>");
+        desc.add_options()("-h", "produce help message")("-b", boost::program_options::value<bomb_timer_t>(), "bomb-timer <u16>")("-c", boost::program_options::value<uint16_t>(), "players-count <u8>")("-d", boost::program_options::value<turn_duration_t>(), "turn-duration <u64, milisekundy>")("-e", boost::program_options::value<explosion_radius_t>(), "explosion-radius <u16>")("-k", boost::program_options::value<uint16_t>(), "initial-blocks <u16>")("-l", boost::program_options::value<game_length_t>(), "game-length <u16>")("-n", boost::program_options::value<std::string>(), "server-name <String>")("-p", boost::program_options::value<uint16_t>(), "port <u16>")("-s", boost::program_options::value<uint32_t>()->default_value(static_cast<uint32_t>(time(NULL))), "seed <u32, parametr opcjonalny>")("-x", boost::program_options::value<size_x_t>(), "size-x <u16>")("-y", boost::program_options::value<size_y_t>(), "size-y <u16>");
 
         boost::program_options::variables_map vm;
         boost::program_options::store(boost::program_options::parse_command_line(ac, av, desc), vm);
@@ -536,7 +555,11 @@ namespace bomberman
         robots_server_args_t args;
 
         args.bomb_timer = vm["-b"].as<bomb_timer_t>();
-        args.players_count = vm["-c"].as<players_count_t>();
+        uint16_t players_count = vm["-c"].as<uint16_t>();
+        if(args.players_count > std::numeric_limits<uint8_t>::max())
+            throw InvalidArguments("player counts must be unsigned 8-bits integer!");
+        else
+            args.players_count = static_cast<players_count_t>(players_count);
         args.turn_duration = vm["-d"].as<turn_duration_t>();
         args.explosion_radius = vm["-e"].as<explosion_radius_t>();
         args.initial_blocks = vm["-k"].as<uint16_t>();
@@ -546,6 +569,18 @@ namespace bomberman
         args.seed = vm["-s"].as<uint32_t>();
         args.size_x = vm["-x"].as<size_x_t>();
         args.size_y = vm["-y"].as<size_y_t>();
+
+        BOOST_LOG_TRIVIAL(debug) << "Server run with arguments: "
+                                 << "\nargs.bomb_timer " << args.bomb_timer
+                                 << "\nargs.players_count " << args.players_count 
+                                 << "\nargs.turn_duration " << args.turn_duration
+                                 << "\nargs.explosion_radius " << args.explosion_radius
+                                 << "\nargs.initial_blocks " << args.initial_blocks
+                                 << "\nargs.server_name " << args.server_name
+                                 << "\nargs.port " << args.port
+                                 << "\nargs.seed " << args.seed
+                                 << "\nargs.size_x " << args.size_x
+                                 << "\nargs.size_y " << args.size_y;
 
         return args;
     }

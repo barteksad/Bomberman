@@ -1,6 +1,12 @@
 #ifndef BOMBERMAN_CLIENT_H
 #define BOMBERMAN_CLIENT_H
 
+// This is just to silent boost pragma message about old version of this file.
+// The correct version is included above.
+#include <boost/core/scoped_enum.hpp>
+#define BOOST_DETAIL_SCOPED_ENUM_EMULATION_HPP
+// --- 
+
 #include <boost/asio.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/program_options.hpp>
@@ -135,7 +141,6 @@ namespace bomberman
         if (state_ == LOBBY)
         {
           client_messages_q_.push(Join{player_name_});
-          BOOST_LOG_TRIVIAL(debug) << "sending Join to server";
           // Clear qui messages queue because we are not in game yet.
           input_messages_q_ = std::queue<input_message_t>();
         }
@@ -401,7 +406,7 @@ namespace bomberman
         "-d", boost::program_options::value<std::string>(),
         "<(host):(port) or (IPv4):(port) or (IPv6):(port)>")(
         "-n", boost::program_options::value<std::string>(), "player name (max 255 characters)")(
-        "-p", boost::program_options::value<uint16_t>(), "port number")(
+        "-p", boost::program_options::value<uint32_t>(), "port number")(
         "-s", boost::program_options::value<std::string>(),
         "<(host):(port) or (IPv4):(port) or (IPv6):(port)>");
 
@@ -424,7 +429,11 @@ namespace bomberman
       args.server_endpoint_input = vm["-s"].as<std::string>();
       args.gui_endpoint_input = vm["-d"].as<std::string>();
       args.player_name = vm["-n"].as<std::string>();
-      args.port = vm["-p"].as<uint16_t>();
+      uint32_t port = vm["-p"].as<uint32_t>();
+      if(port > std::numeric_limits<uint16_t>::max())
+        throw InvalidArguments("port must be unsigned 16-bits integer!");
+      else
+        args.port = static_cast<uint16_t>(port);
 
       if (args.player_name.length() > 255)
         throw InvalidArguments("player name must be shorter than 256 characters");
@@ -443,7 +452,6 @@ namespace bomberman
       std::cout << desc;
       exit(1);
     }
-    __builtin_unreachable();
   }
 
 } // namespace bomberman

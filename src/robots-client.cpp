@@ -19,7 +19,7 @@ namespace
         if(ROBOTS_DEBUG)
         {
             // Log debug informations.
-                boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::debug);
+            boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::debug);
         }
         else
         {
@@ -54,4 +54,6 @@ int main(int ac, char *av[])
         std::cerr << "unknown problem\n";
         return 1;
     }
+
+    return 0;
 }
