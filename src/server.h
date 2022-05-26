@@ -84,6 +84,7 @@ namespace bomberman
                         boost::asio::ip::tcp::no_delay option(true);
                         socket.set_option(option);
                         handle_new_connection(std::move(socket));
+                        connect_loop();
                     }
                     else
                     {
@@ -135,9 +136,8 @@ namespace bomberman
 
                     // Server needs to process this message if it is in LOBBY state.
                     // In GAME state it automatically processes messages every turn-duration miliseconds.
-                    bool handle_in_progress = !clients_messages_hm_.empty();
                     clients_messages_hm_.insert({player_id, client_message});
-                    if (state_ == LOBBY && !handle_in_progress)
+                    if (state_ == LOBBY)
                     {
                         process_lobby();
                     }
@@ -207,7 +207,6 @@ namespace bomberman
         void notify_new(const player_id_t player_id, bool call_send_message = false)
         {
             // Send all accepted player messages currently stored.
-            bool send_in_progress = !messages_to_send_q_.empty();
             for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
             {
                 target_one_t notify_new{
@@ -225,7 +224,7 @@ namespace bomberman
                 messages_to_send_q_.push(notify_new);
             }
 
-            if (call_send_message && !send_in_progress && !messages_to_send_q_.empty())
+            if (call_send_message)
             {
                 send_messages();
             }
@@ -236,7 +235,6 @@ namespace bomberman
             assert(!clients_messages_hm_.empty());
             assert(state_ == LOBBY);
 
-            bool send_in_progress = !messages_to_send_q_.size();
             std::unordered_set<player_id_t> processed_messages;
 
             // In lobby we only accept Join messages.
@@ -252,7 +250,7 @@ namespace bomberman
                 {
                     Join join = std::get<Join>(client_message);
                     auto &socket = open_connections_hm_.at(player_id);
-                    const std::string player_address =  socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port());
+                    const std::string player_address = "[" + socket.remote_endpoint().address().to_string() + "]:" + std::to_string(socket.remote_endpoint().port());
                     BOOST_LOG_TRIVIAL(debug) << "New player address: " << player_address;
                     player_t new_player = player_t{.name = join.name, .address = player_address};
 
@@ -263,7 +261,6 @@ namespace bomberman
                     target_all_t notify_all{.message = accepted_player};
                     messages_to_send_q_.push(notify_all);
                     accepted_player_messages_l_.push_back(accepted_player);
-                    messages_to_send_q_.push(target_all_t{.message = accepted_player});
                 }
 
                 if (game_state_.players.size() == args_.players_count)
@@ -276,7 +273,7 @@ namespace bomberman
                 return processed_messages.contains(player_id);
             });
 
-            if (!send_in_progress && !messages_to_send_q_.empty())
+            if (!messages_to_send_q_.empty())
             {
                 send_messages();
             }
@@ -294,8 +291,6 @@ namespace bomberman
             assert(game_state_.player_to_position.size() == 0);
             assert(game_state_.scores.size() == 0);
             assert(turn_messages_l_.size() == 0);
-
-            bool send_in_progress = !messages_to_send_q_.empty();
 
             messages_to_send_q_.push(target_all_t{.message = GameStarted(game_state_.players)});
             state_ = GAME;
@@ -327,11 +322,8 @@ namespace bomberman
             Turn turn(0, events);
             messages_to_send_q_.push(target_all_t{.message = turn});
             turn_messages_l_.push_back(turn);
-
-            if (!send_in_progress)
-            {
-                send_messages();
-            }
+ 
+            send_messages();
 
             turn_timer_.expires_from_now(boost::posix_time::milliseconds(args_.turn_duration));
             turn_timer_.async_wait(boost::bind(&RobotsServer::process_one_turn, this, boost::asio::placeholders::error));
@@ -345,12 +337,9 @@ namespace bomberman
             turn_messages_l_.clear();
 
             GameEnded game_ended(game_state_.scores);
-            bool send_in_progress = !messages_to_send_q_.empty();
             messages_to_send_q_.push(target_all_t{.message = game_ended});
-            if(!send_in_progress)
-            {
-                send_messages();
-            }
+
+            send_messages();
 
             game_state_.reset();
         }
@@ -372,13 +361,13 @@ namespace bomberman
                         {
                             blocks_destroyed.insert(position);
                             bomb_exploded.blocks_destroyed.insert(position);
-                            for (const auto &[player_id, player_position] : game_state_.player_to_position)
+                        }
+                        for (const auto &[player_id, player_position] : game_state_.player_to_position)
+                        {
+                            if (player_position == position)
                             {
-                                if (player_position == position)
-                                {
-                                    robots_destroyed.insert(player_id);
-                                    bomb_exploded.robots_destroyed.insert(player_id);
-                                }
+                                robots_destroyed.insert(player_id);
+                                bomb_exploded.robots_destroyed.insert(player_id);
                             }
                         }
                     }
@@ -480,6 +469,7 @@ namespace bomberman
                     events.push_back(PlayerMoved(player_id, player_new_position));
                 }
             }
+            clients_messages_hm_.clear();
         }
 
         void process_one_turn(const boost::system::error_code &ec)
@@ -496,16 +486,15 @@ namespace bomberman
 
             process_bombs(robots_destroyed, blocks_destroyed, events);
             process_players(robots_destroyed, events);
+            // Add scores to players whose rob was destroyed.
+            for(auto player_id : robots_destroyed)
+                game_state_.scores[player_id]++;
 
             Turn turn(game_state_.turn++, events);
             turn_messages_l_.push_back(turn);
 
-            bool send_in_progress = !messages_to_send_q_.empty();
             messages_to_send_q_.push(target_all_t{.message = turn});
-            if (!send_in_progress)
-            {
-                send_messages();
-            }
+            send_messages();
 
             if (game_state_.turn == args_.game_length)
             {
