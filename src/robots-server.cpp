@@ -7,11 +7,27 @@
 
 namespace
 {
+
+    #ifdef NDEBUG
+    static const bool ROBOTS_DEBUG = false;
+    #else
+    static const bool ROBOTS_DEBUG = true;
+    #endif
+
     void init_logging()
     {
-        boost::log::core::get()->set_filter(
-            boost::log::trivial::severity >= boost::log::trivial::debug);
+        if(ROBOTS_DEBUG)
+        {
+            // Log debug informations.
+            boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::debug);
+        }
+        else
+        {
+            // No logs.
+            boost::log::core::get()->set_filter( boost::log::trivial::severity > boost::log::trivial::fatal);
+        }
     }
+    
 } // namespace
 
 int main(int ac, char *av[])
