@@ -5,7 +5,7 @@
 // The correct version is included above.
 #include <boost/core/scoped_enum.hpp>
 #define BOOST_DETAIL_SCOPED_ENUM_EMULATION_HPP
-// --- 
+// ---
 
 #include "common.h"
 #include "net.h"
@@ -113,8 +113,10 @@ namespace bomberman
                         .to_who = new_player_id,
                         .message = hello_from_server_args(args_)});
 
+                // Send accepted player and turns to new player if needed.
                 notify_new(new_player_id);
 
+                // Spawn loop for handling connection from this client.
                 auto spawn_callback =
                     [new_player_id, this](boost::asio::yield_context yield) {
                         read_message_from_client(yield, new_player_id);
@@ -132,6 +134,7 @@ namespace bomberman
             {
                 try
                 {
+                    // Receive message from client.
                     const client_message_t client_message = tcp_deserializer.get_client_message(yield);
 
                     // Server needs to process this message if it is in LOBBY state.
@@ -153,6 +156,7 @@ namespace bomberman
 
         void send_to_one(buffer_t &buffer, target_one_t &targeted_message)
         {
+            // Send message to one specific client (endpoint).
             auto target = open_connections_hm_.find(targeted_message.to_who);
             if (target == open_connections_hm_.end())
                 return;
@@ -171,6 +175,7 @@ namespace bomberman
 
         void send_to_all(buffer_t &buffer)
         {
+            // Send message to all open connections.
             for (auto &[player_id, socket] : open_connections_hm_)
             {
                 auto after_write_callback = [to_who = player_id, this](boost::system::error_code ec, std::size_t) {
@@ -188,6 +193,7 @@ namespace bomberman
 
         void send_messages()
         {
+            // Send message to one or to all depending on message type.
             NetSerializer net_serializer;
 
             while (!messages_to_send_q_.empty())
@@ -242,16 +248,18 @@ namespace bomberman
                 if (game_state_.players.contains(player_id))
                     continue;
 
+                // Client wants to join the game.
                 if (std::holds_alternative<Join>(client_message))
                 {
                     Join join = std::get<Join>(client_message);
+                    // Find their's socket to get address and port.
                     auto &socket = open_connections_hm_.at(player_id);
                     const std::string player_address = "[" + socket.remote_endpoint().address().to_string() + "]:" + std::to_string(socket.remote_endpoint().port());
                     BOOST_LOG_TRIVIAL(debug) << "New player address: " << player_address;
                     player_t new_player = player_t{.name = join.name, .address = player_address};
 
                     game_state_.players.insert({player_id, new_player});
-                    
+
                     // Send information about new cliento to everyone and store this message.
                     AcceptedPlayer accepted_player(player_id, new_player);
                     target_all_t notify_all{.message = accepted_player};
@@ -302,6 +310,7 @@ namespace bomberman
                 events.push_back(PlayerMoved(player_id, player_position));
             }
 
+            // Generate random blocks
             for (auto i = 0; i < args_.initial_blocks; i++)
             {
                 position_t block_position{
@@ -315,9 +324,10 @@ namespace bomberman
             Turn turn(0, events);
             messages_to_send_q_.push(target_all_t{.message = turn});
             turn_messages_l_.push_back(turn);
- 
+
             send_messages();
 
+            // Set timer for turns.
             turn_timer_.expires_from_now(boost::posix_time::milliseconds(args_.turn_duration));
             turn_timer_.async_wait(boost::bind(&RobotsServer::process_one_turn, this, boost::asio::placeholders::error));
         }
@@ -411,7 +421,9 @@ namespace bomberman
         void process_player_turn(events_t &events, const player_id_t player_id, client_message_t &client_message)
         {
             std::visit(overloaded{
+                           // Join message, ignore in game
                            [](Join &) {},
+                           // PlaceBomb message
                            [player_id, &events, this](PlaceBomb &) {
                                const bomb_id_t bomb_id = game_state_.free_bomb_id++;
                                bomb_t bomb{
@@ -421,6 +433,7 @@ namespace bomberman
                                game_state_.bombs.insert({bomb_id, bomb});
                                events.push_back(BombPlaced(bomb_id, bomb.position));
                            },
+                           // PlaceBlock message
                            [player_id, &events, this](PlaceBlock &) {
                                position_t block_position = game_state_.player_to_position[player_id];
                                if (game_state_.blocks.insert(block_position).second)
@@ -428,6 +441,7 @@ namespace bomberman
                                    events.push_back(BlockPlaced(block_position));
                                }
                            },
+                           // Move message
                            [player_id, &events, this](Move &move) {
                                position_t position = game_state_.player_to_position[player_id];
                                auto new_position = calculate_move(position, move);
@@ -480,7 +494,7 @@ namespace bomberman
             process_bombs(robots_destroyed, blocks_destroyed, events);
             process_players(robots_destroyed, events);
             // Add scores to players whose rob was destroyed.
-            for(auto player_id : robots_destroyed)
+            for (auto player_id : robots_destroyed)
                 game_state_.scores[player_id]++;
 
             Turn turn(game_state_.turn++, events);
@@ -538,7 +552,7 @@ namespace bomberman
 
         args.bomb_timer = vm["-b"].as<bomb_timer_t>();
         uint16_t players_count = vm["-c"].as<uint16_t>();
-        if(args.players_count > std::numeric_limits<uint8_t>::max())
+        if (args.players_count > std::numeric_limits<uint8_t>::max())
             throw InvalidArguments("player counts must be unsigned 8-bits integer!");
         else
             args.players_count = static_cast<players_count_t>(players_count);
@@ -554,7 +568,7 @@ namespace bomberman
 
         BOOST_LOG_TRIVIAL(debug) << "Server run with arguments: "
                                  << "\nargs.bomb_timer " << args.bomb_timer
-                                 << "\nargs.players_count " << args.players_count 
+                                 << "\nargs.players_count " << args.players_count
                                  << "\nargs.turn_duration " << args.turn_duration
                                  << "\nargs.explosion_radius " << args.explosion_radius
                                  << "\nargs.initial_blocks " << args.initial_blocks

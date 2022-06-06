@@ -8,15 +8,15 @@
 namespace
 {
 
-    #ifdef NDEBUG
+#ifdef NDEBUG
     static const bool ROBOTS_DEBUG = false;
-    #else
+#else
     static const bool ROBOTS_DEBUG = true;
-    #endif
+#endif
 
     void init_logging()
     {
-        if(ROBOTS_DEBUG)
+        if (ROBOTS_DEBUG)
         {
             // Log debug informations.
             boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::debug);
@@ -24,10 +24,10 @@ namespace
         else
         {
             // No logs.
-            boost::log::core::get()->set_filter( boost::log::trivial::severity > boost::log::trivial::fatal);
+            boost::log::core::get()->set_filter(boost::log::trivial::severity > boost::log::trivial::fatal);
         }
     }
-    
+
 } // namespace
 
 int main(int ac, char *av[])
