@@ -113,7 +113,7 @@ namespace bomberman
                         .to_who = new_player_id,
                         .message = hello_from_server_args(args_)});
 
-                notify_new(new_player_id, true);
+                notify_new(new_player_id);
 
                 auto spawn_callback =
                     [new_player_id, this](boost::asio::yield_context yield) {
@@ -188,7 +188,6 @@ namespace bomberman
 
         void send_messages()
         {
-            assert(!messages_to_send_q_.empty());
             NetSerializer net_serializer;
 
             while (!messages_to_send_q_.empty())
@@ -204,7 +203,7 @@ namespace bomberman
             }
         }
 
-        void notify_new(const player_id_t player_id, bool call_send_message = false)
+        void notify_new(const player_id_t player_id)
         {
             // Send all accepted player messages currently stored.
             for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
@@ -224,10 +223,7 @@ namespace bomberman
                 messages_to_send_q_.push(notify_new);
             }
 
-            if (call_send_message)
-            {
-                send_messages();
-            }
+            send_messages();
         }
 
         void process_lobby()
@@ -273,10 +269,7 @@ namespace bomberman
                 return processed_messages.contains(player_id);
             });
 
-            if (!messages_to_send_q_.empty())
-            {
-                send_messages();
-            }
+            send_messages();
 
             if (game_state_.players.size() == args_.players_count)
                 start_game();
