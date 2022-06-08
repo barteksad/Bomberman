@@ -497,7 +497,7 @@ namespace bomberman
             for (auto player_id : robots_destroyed)
                 game_state_.scores[player_id]++;
 
-            Turn turn(game_state_.turn++, events);
+            Turn turn(++game_state_.turn, events);
             turn_messages_l_.push_back(turn);
 
             messages_to_send_q_.push(target_all_t{.message = turn});
