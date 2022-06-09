@@ -57,6 +57,8 @@ namespace bomberman
                 args.explosion_radius,
                 args.bomb_timer);
         }
+
+        static constinit std::size_t MAX_SERVER_CONNECTIONS = 25;
     } // namespace
 
     class RobotsServer

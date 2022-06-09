@@ -159,10 +159,6 @@ namespace bomberman
     // size of move message
     static constinit std::size_t MAX_GUI_TO_CLIENT_MESSAGE_SIZE = sizeof(message_code_t) + sizeof(direction_t);
 
-    // Use preprocessing to silent warnings if target is only client or server.
-    #ifdef ROBOTS_SERVER
-    static constinit std::size_t MAX_SERVER_CONNECTIONS = 25;
-    #endif
 } // bomberman
 
 #endif // BOMBERMAN_TYPES_H
