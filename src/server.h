@@ -79,7 +79,8 @@ namespace bomberman
         void connect_loop()
         {
             acceptor_.async_accept(
-                [this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
+                [this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket)
+                {
                     if (!ec)
                     {
                         // Turn off Nagle's algorithm
@@ -120,9 +121,10 @@ namespace bomberman
 
                 // Spawn loop for handling connection from this client.
                 auto spawn_callback =
-                    [new_player_id, this](boost::asio::yield_context yield) {
-                        read_message_from_client(yield, new_player_id);
-                    };
+                    [new_player_id, this](boost::asio::yield_context yield)
+                {
+                    read_message_from_client(yield, new_player_id);
+                };
                 boost::asio::spawn(io_context_, spawn_callback);
             }
         }
@@ -163,7 +165,8 @@ namespace bomberman
             if (target == open_connections_hm_.end())
                 return;
 
-            auto after_write_callback = [to_who = targeted_message.to_who, this](boost::system::error_code ec, std::size_t) {
+            auto after_write_callback = [to_who = targeted_message.to_who, this](boost::system::error_code ec, std::size_t)
+            {
                 if (ec)
                 {
                     BOOST_LOG_TRIVIAL(debug) << "error sending to client " << to_who << ", disconnects";
@@ -180,7 +183,8 @@ namespace bomberman
             // Send message to all open connections.
             for (auto &[player_id, socket] : open_connections_hm_)
             {
-                auto after_write_callback = [to_who = player_id, this](boost::system::error_code ec, std::size_t) {
+                auto after_write_callback = [to_who = player_id, this](boost::system::error_code ec, std::size_t)
+                {
                     if (ec)
                     {
                         BOOST_LOG_TRIVIAL(debug) << "error sending to client " << to_who << ", disconnects";
@@ -213,12 +217,23 @@ namespace bomberman
 
         void notify_new(const player_id_t player_id)
         {
-            // Send all accepted player messages currently stored.
-            for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
+            if (state_ == LOBBY)
             {
+                // Send all accepted player messages currently stored.
+                for (AcceptedPlayer &accpeted : accepted_player_messages_l_)
+                {
+                    target_one_t notify_new{
+                        .to_who = player_id,
+                        .message = accpeted};
+                    messages_to_send_q_.push(notify_new);
+                }
+            }
+            else
+            {
+                GameStarted game_started(game_state_.players);
                 target_one_t notify_new{
                     .to_who = player_id,
-                    .message = accpeted};
+                    .message = game_started};
                 messages_to_send_q_.push(notify_new);
             }
 
@@ -274,10 +289,10 @@ namespace bomberman
             }
 
             // Erase processed messages.
-            std::erase_if(clients_messages_hm_, [&processed_messages](const auto &item) {
+            std::erase_if(clients_messages_hm_, [&processed_messages](const auto &item)
+                          {
                 auto const &[player_id, _] = item;
-                return processed_messages.contains(player_id);
-            });
+                return processed_messages.contains(player_id); });
 
             send_messages();
 
@@ -315,12 +330,16 @@ namespace bomberman
             // Generate random blocks
             for (auto i = 0; i < args_.initial_blocks; i++)
             {
+
                 position_t block_position{
                     .x = static_cast<size_x_t>(random_() % (long unsigned int)args_.size_x),
                     .y = static_cast<size_y_t>(random_() % (long unsigned int)args_.size_y),
                 };
-                game_state_.blocks.insert(block_position);
-                events.push_back(BlockPlaced(block_position));
+                // Add BlockPlaced only if the block has really been placed
+                if (game_state_.blocks.insert(block_position).second)
+                {
+                    events.push_back(BlockPlaced(block_position));
+                }
             }
 
             Turn turn(0, events);
@@ -381,11 +400,13 @@ namespace bomberman
             }
 
             std::erase_if(game_state_.bombs,
-                          [](const auto &bomb_pair) {
+                          [](const auto &bomb_pair)
+                          {
                               return !bomb_pair.second.timer;
                           });
             std::erase_if(game_state_.blocks,
-                          [&blocks_destroyed](const auto &block_position) {
+                          [&blocks_destroyed](const auto &block_position)
+                          {
                               return blocks_destroyed.contains(block_position);
                           });
         }
@@ -422,37 +443,39 @@ namespace bomberman
 
         void process_player_turn(events_t &events, const player_id_t player_id, client_message_t &client_message)
         {
-            std::visit(overloaded{
-                           // Join message, ignore in game
-                           [](Join &) {},
-                           // PlaceBomb message
-                           [player_id, &events, this](PlaceBomb &) {
-                               const bomb_id_t bomb_id = game_state_.free_bomb_id++;
-                               bomb_t bomb{
-                                   .position = game_state_.player_to_position[player_id],
-                                   .timer = args_.bomb_timer,
-                               };
-                               game_state_.bombs.insert({bomb_id, bomb});
-                               events.push_back(BombPlaced(bomb_id, bomb.position));
-                           },
-                           // PlaceBlock message
-                           [player_id, &events, this](PlaceBlock &) {
-                               position_t block_position = game_state_.player_to_position[player_id];
-                               if (game_state_.blocks.insert(block_position).second)
-                               {
-                                   events.push_back(BlockPlaced(block_position));
-                               }
-                           },
-                           // Move message
-                           [player_id, &events, this](Move &move) {
-                               position_t position = game_state_.player_to_position[player_id];
-                               auto new_position = calculate_move(position, move);
-                               if (new_position)
-                               {
-                                   game_state_.player_to_position[player_id] = new_position.value();
-                                   events.push_back(PlayerMoved(player_id, new_position.value()));
-                               }
-                           }},
+            std::visit(overloaded{// Join message, ignore in game
+                                  [](Join &) {},
+                                  // PlaceBomb message
+                                  [player_id, &events, this](PlaceBomb &)
+                                  {
+                                      const bomb_id_t bomb_id = game_state_.free_bomb_id++;
+                                      bomb_t bomb{
+                                          .position = game_state_.player_to_position[player_id],
+                                          .timer = args_.bomb_timer,
+                                      };
+                                      game_state_.bombs.insert({bomb_id, bomb});
+                                      events.push_back(BombPlaced(bomb_id, bomb.position));
+                                  },
+                                  // PlaceBlock message
+                                  [player_id, &events, this](PlaceBlock &)
+                                  {
+                                      position_t block_position = game_state_.player_to_position[player_id];
+                                      if (game_state_.blocks.insert(block_position).second)
+                                      {
+                                          events.push_back(BlockPlaced(block_position));
+                                      }
+                                  },
+                                  // Move message
+                                  [player_id, &events, this](Move &move)
+                                  {
+                                      position_t position = game_state_.player_to_position[player_id];
+                                      auto new_position = calculate_move(position, move);
+                                      if (new_position)
+                                      {
+                                          game_state_.player_to_position[player_id] = new_position.value();
+                                          events.push_back(PlayerMoved(player_id, new_position.value()));
+                                      }
+                                  }},
                        client_message);
         }
 
